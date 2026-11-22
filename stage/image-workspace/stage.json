@@ -1,0 +1,9 @@
+{
+  "id": "image-workspace",
+  "context": "host-shell",
+  "title": "Prepare image output workspace",
+  "description": "Refuse existing output and report workspace paths",
+  "requires": [
+    "image-inputs"
+  ]
+}

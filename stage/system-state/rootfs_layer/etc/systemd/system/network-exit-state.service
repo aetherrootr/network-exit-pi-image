@@ -1,0 +1,14 @@
+[Unit]
+Description=Prepare persistent appliance identity and configuration
+DefaultDependencies=no
+After=local-fs.target
+Before=ssh.service tailscaled.service rauc.service network-exit-guard.service network-exit-cloudflared.service network-exit-singbox.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=10min
+RemainAfterExit=yes
+ExecStart=/usr/lib/network-exit/prepare-state
+
+[Install]
+WantedBy=sysinit.target

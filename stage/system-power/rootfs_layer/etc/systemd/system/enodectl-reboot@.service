@@ -1,0 +1,12 @@
+[Unit]
+Description=Controller recovery reboot after %i
+DefaultDependencies=no
+ConditionKernelCommandLine=network_exit.trial=1
+# Last resort only if the controller itself cannot execute its recovery request.
+FailureAction=reboot-force
+
+[Service]
+Type=oneshot
+TimeoutStartSec=20s
+TimeoutStopSec=5s
+ExecStart=/usr/local/sbin/enodectl reboot --force --reason %i

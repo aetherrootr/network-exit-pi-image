@@ -1,0 +1,7 @@
+[Unit]
+Description=Revert unconfirmed network configuration
+
+[Timer]
+OnActiveSec=90s
+AccuracySec=1s
+Unit=network-exit-network-rollback.service

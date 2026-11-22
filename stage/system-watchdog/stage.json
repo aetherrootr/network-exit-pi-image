@@ -1,0 +1,25 @@
+{
+  "id": "system-watchdog",
+  "context": "chroot",
+  "description": "Configure system watchdog",
+  "title": "Configure system watchdog",
+  "requires": [
+    "base-system"
+  ],
+  "commands": [
+    {
+      "name": "watchdog",
+      "help": "Inspect the runtime hardware watchdog",
+      "register": "watchdog_commands:configure_parser",
+      "handler": "watchdog_commands:run"
+    }
+  ],
+  "service": {
+    "name": "system-watchdog",
+    "label": "Hardware watchdog",
+    "units": [],
+    "mandatory": true,
+    "kind": "system",
+    "view": "watchdog_policy_view:screen"
+  }
+}

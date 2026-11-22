@@ -1,0 +1,9 @@
+{
+  "id": "enodectl",
+  "context": "host",
+  "description": "Build the shiv controller application",
+  "title": "Build the shiv controller application",
+  "requires": [
+    "service-manager"
+  ]
+}

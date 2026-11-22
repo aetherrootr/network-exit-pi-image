@@ -1,0 +1,14 @@
+[Unit]
+Description=Network exit forwarding guard
+Requires=network-exit-state.service
+After=network-exit-state.service network-pre.target nftables.service
+Before=wg-quick@wg-home.service
+ConditionPathExists=/etc/network-exit/rules.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/network-exit-guard
+
+[Install]
+WantedBy=multi-user.target

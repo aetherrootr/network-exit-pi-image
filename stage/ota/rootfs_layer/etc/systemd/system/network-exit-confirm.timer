@@ -1,0 +1,10 @@
+[Unit]
+Description=Check local trial boot health after startup
+ConditionKernelCommandLine=network_exit.trial=1
+
+[Timer]
+OnBootSec=90s
+Unit=network-exit-confirm.service
+
+[Install]
+WantedBy=timers.target

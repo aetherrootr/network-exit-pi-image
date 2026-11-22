@@ -1,0 +1,29 @@
+{
+  "id": "system-state",
+  "context": "chroot",
+  "description": "Configure persistent STATE",
+  "title": "Configure persistent STATE",
+  "requires": [
+    "ota",
+    "system-overlay"
+  ],
+  "packages": [
+    "cloud-guest-utils"
+  ],
+  "private": {
+    "prepare-state": {
+      "module": "prepare_state",
+      "root": true
+    }
+  },
+  "service": {
+    "name": "system-state",
+    "label": "Persistent STATE",
+    "units": [
+      "network-exit-state.service"
+    ],
+    "mandatory": true,
+    "kind": "system",
+    "view": "state_policy_view:screen"
+  }
+}

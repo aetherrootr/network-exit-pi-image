@@ -1,0 +1,23 @@
+[Unit]
+Description=Network exit private sing-box proxy
+Wants=network-online.target
+Requires=network-exit-network.service
+After=network-online.target network-exit-network.service
+ConditionPathExists=/etc/network-exit/sing-box.json
+StartLimitIntervalSec=0
+
+[Service]
+DynamicUser=yes
+LoadCredential=config.json:/etc/network-exit/sing-box.json
+ExecStart=/usr/bin/sing-box run -c %d/config.json
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

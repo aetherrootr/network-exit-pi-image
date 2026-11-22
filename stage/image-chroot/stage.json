@@ -1,0 +1,9 @@
+{
+  "id": "image-chroot",
+  "context": "host-shell",
+  "title": "Prepare ARM64 chroot",
+  "description": "Set up execution, resolver, service inhibitor and mounts",
+  "requires": [
+    "image-rootfs"
+  ]
+}

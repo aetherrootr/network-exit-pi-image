@@ -1,0 +1,10 @@
+work/
+output/
+cache/
+*.img
+*.img.xz
+__pycache__/
+*.pyc
+*.key
+*.raucb
+*.key.pem

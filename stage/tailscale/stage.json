@@ -1,0 +1,31 @@
+{
+  "id": "tailscale",
+  "context": "chroot",
+  "description": "Install Tailscale",
+  "title": "Install Tailscale",
+  "requires": [
+    "network"
+  ],
+  "packages": [
+    "tailscale"
+  ],
+  "service": {
+    "name": "tailscale",
+    "label": "Tailscale",
+    "units": [
+      "tailscaled.service"
+    ],
+    "mandatory": true,
+    "view": "tailscale_view:screen",
+    "managed_startup": true
+  },
+  "verify": [
+    {
+      "command": [
+        "tailscale",
+        "version"
+      ]
+    }
+  ],
+  "required_check": "tailscale_config:check"
+}

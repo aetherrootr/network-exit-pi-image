@@ -1,0 +1,14 @@
+[Unit]
+Description=Restore managed firewall and forwarding policy
+Requires=network-exit-state.service
+After=network-exit-state.service
+Before=ssh.service tailscaled.service network-exit-guard.service wg-quick@wg-home.service network-exit-cloudflared.service network-exit-singbox.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/network-exit/network-runtime restore
+TimeoutStartSec=45s
+
+[Install]
+WantedBy=multi-user.target

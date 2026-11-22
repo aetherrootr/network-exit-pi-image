@@ -1,0 +1,9 @@
+[Unit]
+Description=Restore previous unconfirmed network configuration
+After=network-exit-state.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/network-exit/network-runtime rollback
+Restart=on-failure
+RestartSec=5s

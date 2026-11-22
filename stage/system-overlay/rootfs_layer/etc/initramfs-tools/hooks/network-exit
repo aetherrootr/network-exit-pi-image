@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0;; esac
+. /usr/share/initramfs-tools/hook-functions
+manual_add_modules overlay
+copy_exec /usr/sbin/blkid /sbin/blkid
+copy_exec /usr/bin/sed /bin/sed
+copy_exec /usr/bin/awk /bin/awk
+copy_exec /usr/bin/chmod /bin/chmod
+copy_exec /usr/bin/chown /bin/chown
+# Keep the memory policy available before switching to the real root.
+mkdir -p "$DESTDIR/lib/network-exit"
+cp /usr/lib/network-exit/overlay-limit.sh "$DESTDIR/lib/network-exit/overlay-limit.sh"

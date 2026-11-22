@@ -1,0 +1,15 @@
+{
+  "id": "system-verify",
+  "context": "chroot",
+  "description": "Verify the assembled system",
+  "title": "Verify the assembled system",
+  "requires": [
+    "system-power"
+  ],
+  "private": {
+    "verify-installed": {
+      "call": "system_verify:verify",
+      "root": true
+    }
+  }
+}

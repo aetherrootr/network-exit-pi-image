@@ -1,0 +1,7 @@
+{
+  "id": "image-inputs",
+  "context": "host-shell",
+  "title": "Verify image build inputs",
+  "description": "Check tools, source checksum and public OTA certificate",
+  "requires": []
+}

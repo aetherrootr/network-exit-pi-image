@@ -1,0 +1,67 @@
+#!/bin/sh
+# Runs after standard overlayroot has created the RAM-backed root overlay.
+PREREQ="overlayroot"
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0;; esac
+. /scripts/functions
+set -e
+trap 'result=$?; trap - 0; if [ "$result" -ne 0 ]; then panic "Persistent state setup failed"; fi' 0
+# overlayroot may remount the merged root read-only when the kernel uses ro.
+# Require the overlay, then make only its RAM-backed merged view writable.
+. /lib/network-exit/overlay-limit.sh
+limit_root_overlay "$rootmnt" || { echo 'Cannot enforce RAM overlay limits' >&2; exit 1; }
+mount -o remount,rw "$rootmnt" || panic 'Cannot make RAM overlay writable'
+state_uuid=""
+for arg in $(cat /proc/cmdline); do
+    case "$arg" in network_exit.state=*) state_uuid=${arg#network_exit.state=};; esac
+done
+case "$state_uuid" in ????????-04) ;; *) panic 'Missing network appliance STATE PARTUUID';; esac
+state_device=$(blkid -t "PARTUUID=$state_uuid" -o device)
+[ -b "$state_device" ] || panic 'STATE partition is unavailable'
+state_root="$rootmnt/var/lib/network-exit"
+mkdir -p "$state_root"
+mount -t ext4 -o rw,noatime,nodev,nosuid "$state_device" "$state_root" || panic 'Cannot mount STATE; refusing to reset device identities'
+mkdir -p "$state_root/config" "$state_root/tailscale" "$state_root/ssh" "$state_root/rauc" "$state_root/update-cache"
+chmod 700 "$state_root/config" "$state_root/tailscale" "$state_root/ssh" "$state_root/update-cache"
+if [ ! -e "$state_root/machine-id" ]; then
+    tr -d '-' < /proc/sys/kernel/random/uuid > "$state_root/machine-id.new"
+    chmod 444 "$state_root/machine-id.new"
+    mv "$state_root/machine-id.new" "$state_root/machine-id"
+fi
+grep -Eq '^[0-9a-f]{32}$' "$state_root/machine-id" || panic 'Invalid persistent machine ID'
+
+cp "$state_root/machine-id" "$rootmnt/etc/machine-id"
+# All service credentials/configuration live on STATE, not in either system slot.
+mkdir -p "$rootmnt/etc/network-exit" "$rootmnt/var/lib/tailscale" "$rootmnt/etc/wireguard"
+mount --bind "$state_root/config" "$rootmnt/etc/network-exit" || panic 'Cannot bind configuration'
+mount --bind "$state_root/tailscale" "$rootmnt/var/lib/tailscale" || panic 'Cannot bind Tailscale identity'
+mkdir -p "$state_root/config/wireguard"
+chmod 700 "$state_root/config/wireguard"
+mount --bind "$state_root/config/wireguard" "$rootmnt/etc/wireguard" || panic 'Cannot bind WireGuard configuration'
+# Preserve administrator records without replacing new image system accounts.
+if [ -d "$state_root/config/accounts" ]; then
+    for file in passwd shadow group gshadow; do
+        [ ! -f "$state_root/config/accounts/$file" ] || {
+            awk -F: 'NR==FNR { saved[$1]=$0; next } { if ($1 in saved) { print saved[$1]; delete saved[$1] } else print } END { for (name in saved) print saved[name] }' \
+                "$state_root/config/accounts/$file" "$rootmnt/etc/$file" > "$rootmnt/etc/$file.new"
+            chmod --reference="$rootmnt/etc/$file" "$rootmnt/etc/$file.new"
+            chown --reference="$rootmnt/etc/$file" "$rootmnt/etc/$file.new"
+            mv "$rootmnt/etc/$file.new" "$rootmnt/etc/$file"
+        }
+    done
+fi
+mkdir -p "$state_root/homes" "$state_root/root-ssh"
+if [ ! -e "$state_root/homes/pi" ]; then
+    mkdir -p "$state_root/homes/pi"
+    cp -a "$rootmnt/etc/skel/." "$state_root/homes/pi/"
+    chown -R 1000:1000 "$state_root/homes/pi"
+fi
+mkdir -p "$rootmnt/home" "$rootmnt/root/.ssh"
+mount --bind "$state_root/homes" "$rootmnt/home" || panic 'Cannot bind administrator homes'
+mount --bind "$state_root/root-ssh" "$rootmnt/root/.ssh" || panic 'Cannot bind root SSH credentials'
+chmod 700 "$state_root/root-ssh"
+if [ -f "$state_root/config/initialized" ]; then
+    rm -f "$rootmnt/root/.not_logged_in_yet" "$rootmnt/root/.not_logged_in_yet_lock"
+fi
+# Keep STATE writable even when the root lower filesystem is read-only.
+printf '%s /var/lib/network-exit ext4 rw,noatime,nodev,nosuid 0 2\n' "PARTUUID=$state_uuid" >> "$rootmnt/etc/fstab"

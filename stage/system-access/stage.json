@@ -1,0 +1,38 @@
+{
+  "id": "system-access",
+  "context": "chroot",
+  "description": "Configure SSH and administrator access",
+  "title": "Configure SSH and administrator access",
+  "requires": [
+    "system-state",
+    "service-manager"
+  ],
+  "packages": [
+    "openssh-client",
+    "openssh-server",
+    "sudo",
+    "passwd",
+    "libpam-modules"
+  ],
+  "private": {
+    "login-bootstrap": {
+      "module": "login_bootstrap",
+      "root": false
+    },
+    "console-bootstrap": {
+      "module": "console_bootstrap",
+      "root": true
+    }
+  },
+  "before_complete": "access_setup:before_complete",
+  "service": {
+    "name": "ssh",
+    "label": "SSH / public keys / CA",
+    "units": [
+      "ssh.service"
+    ],
+    "mandatory": true,
+    "managed_startup": true,
+    "view": "ssh_view:SSHScreen"
+  }
+}
