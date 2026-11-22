@@ -1,0 +1,13 @@
+[Unit]
+Description=Arm the independent trial boot deadline
+DefaultDependencies=no
+Before=sysinit.target
+ConditionKernelCommandLine=network_exit.trial=1
+
+[Timer]
+OnBootSec=300s
+AccuracySec=1s
+Unit=network-exit-trial-deadline.service
+
+[Install]
+WantedBy=sysinit.target

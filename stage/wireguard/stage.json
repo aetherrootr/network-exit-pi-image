@@ -1,0 +1,46 @@
+{
+  "id": "wireguard",
+  "context": "chroot",
+  "description": "Install WireGuard",
+  "title": "Install WireGuard",
+  "requires": [
+    "network"
+  ],
+  "packages": [
+    "wireguard-tools"
+  ],
+  "service": {
+    "name": "wireguard",
+    "label": "WireGuard",
+    "units": [
+      "network-exit-guard.service",
+      "wg-quick@wg-home.service"
+    ],
+    "mandatory": false,
+    "validate": "wireguard_setup:validate",
+    "before_enable": "wireguard_setup:before_enable",
+    "after_disable": "wireguard_setup:after_disable",
+    "disable_units": [
+      "wg-quick@wg-home.service"
+    ],
+    "view": "wireguard_view:screen"
+  },
+  "private": {
+    "wireguard": {
+      "module": "wireguard_tool",
+      "root": false
+    },
+    "wg-guard": {
+      "call": "wireguard_setup:guard",
+      "root": true
+    }
+  },
+  "verify": [
+    {
+      "command": [
+        "wg",
+        "--version"
+      ]
+    }
+  ]
+}

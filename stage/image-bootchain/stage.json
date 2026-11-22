@@ -1,0 +1,9 @@
+{
+  "id": "image-bootchain",
+  "context": "host-shell",
+  "title": "Install A/B boot selector",
+  "description": "Install U-Boot selector and validate kernel/initramfs",
+  "requires": [
+    "system-verify"
+  ]
+}

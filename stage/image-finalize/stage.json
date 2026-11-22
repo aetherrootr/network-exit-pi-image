@@ -1,0 +1,9 @@
+{
+  "id": "image-finalize",
+  "context": "host-shell",
+  "title": "Close and check root filesystem",
+  "description": "Restore build-only files, retain manifests and release mounts",
+  "requires": [
+    "image-bootchain"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "repository": "aetherrootr/network-exit-pi-image",
+  "compatible": "network-exit-orangepizero3-v2",
+  "asset_prefix": "network-exit-ota-",
+  "asset_suffix": "-orangepizero3.raucb"
+}

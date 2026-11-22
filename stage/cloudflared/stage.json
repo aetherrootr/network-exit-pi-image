@@ -1,0 +1,30 @@
+{
+  "id": "cloudflared",
+  "context": "chroot",
+  "description": "Install Cloudflare Tunnel",
+  "title": "Install Cloudflare Tunnel",
+  "requires": [
+    "network"
+  ],
+  "packages": [
+    "cloudflared"
+  ],
+  "service": {
+    "name": "cloudflared",
+    "label": "Cloudflare Tunnel",
+    "units": [
+      "network-exit-cloudflared.service"
+    ],
+    "mandatory": false,
+    "validate": "cloudflared_setup:validate",
+    "view": "cloudflared_view:screen"
+  },
+  "verify": [
+    {
+      "command": [
+        "cloudflared",
+        "version"
+      ]
+    }
+  ]
+}

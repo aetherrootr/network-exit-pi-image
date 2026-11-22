@@ -1,0 +1,45 @@
+{
+  "id": "system-power",
+  "context": "chroot",
+  "description": "Install controller power policy",
+  "title": "Install controller power policy",
+  "requires": [
+    "enodectl",
+    "system-access"
+  ],
+  "commands": [
+    {
+      "name": "reboot",
+      "help": "Request an operating-system reboot",
+      "register": "power_commands:configure_parser",
+      "handler": "power_commands:run"
+    }
+  ],
+  "blocked_commands": {
+    "poweroff": "Poweroff is disabled on this node. Use sudo enodectl reboot to restart.",
+    "halt": "Poweroff is disabled on this node. Use sudo enodectl reboot to restart.",
+    "shutdown": "Poweroff is disabled on this node. Use sudo enodectl reboot to restart."
+  },
+  "private": {
+    "systemctl-guard": {
+      "module": "systemctl_guard",
+      "root": false
+    },
+    "su-guard": {
+      "module": "su_guard",
+      "root": false
+    },
+    "check-power-policy": {
+      "call": "power_commands:check_policy",
+      "root": true
+    }
+  },
+  "service": {
+    "name": "system-power",
+    "label": "System power policy",
+    "units": [],
+    "mandatory": true,
+    "kind": "system",
+    "view": "power_status_view:screen"
+  }
+}

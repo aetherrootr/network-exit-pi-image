@@ -1,0 +1,19 @@
+#!/usr/bin/python3 -I
+"""Launch the immutable controller archive with a private extraction cache."""
+import os
+from pathlib import Path
+import sys
+
+environment = {key: value for key, value in os.environ.items()
+               if not key.startswith(('SHIV_', 'PYTHON'))}
+if os.geteuid() == 0:
+    for directory in (Path('/run/enodectl'), Path('/run/enodectl/shiv')):
+        directory.mkdir(mode=0o700, exist_ok=True)
+        info = directory.lstat()
+        if directory.is_symlink() or info.st_uid != 0:
+            sys.exit('Unsafe controller cache directory')
+        directory.chmod(0o700)
+    environment['SHIV_ROOT'] = '/run/enodectl/shiv'
+else:
+    environment['SHIV_ROOT'] = str(Path.home() / '.cache/enodectl/shiv')
+os.execve('/usr/bin/python3', ['/usr/bin/python3', '-I', '/usr/lib/enodectl/enodectl.pyz', *sys.argv[1:]], environment)

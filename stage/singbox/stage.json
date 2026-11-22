@@ -1,0 +1,30 @@
+{
+  "id": "singbox",
+  "context": "chroot",
+  "description": "Install sing-box",
+  "title": "Install sing-box",
+  "requires": [
+    "network"
+  ],
+  "packages": [
+    "sing-box"
+  ],
+  "service": {
+    "name": "singbox",
+    "label": "sing-box",
+    "units": [
+      "network-exit-singbox.service"
+    ],
+    "mandatory": false,
+    "validate": "singbox_setup:validate",
+    "view": "singbox_view:screen"
+  },
+  "verify": [
+    {
+      "command": [
+        "sing-box",
+        "version"
+      ]
+    }
+  ]
+}

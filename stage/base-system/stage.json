@@ -1,0 +1,18 @@
+{
+  "id": "base-system",
+  "context": "chroot",
+  "description": "Prepare base packages",
+  "title": "Prepare base packages",
+  "requires": [
+    "image-chroot"
+  ],
+  "packages": [
+    "python3",
+    "ca-certificates",
+    "curl",
+    "util-linux",
+    "fdisk",
+    "e2fsprogs",
+    "initramfs-tools"
+  ]
+}

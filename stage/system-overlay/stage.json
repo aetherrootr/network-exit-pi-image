@@ -1,0 +1,20 @@
+{
+  "id": "system-overlay",
+  "context": "chroot",
+  "description": "Configure RAM OverlayFS",
+  "title": "Configure RAM OverlayFS",
+  "requires": [
+    "base-system"
+  ],
+  "packages": [
+    "overlayroot"
+  ],
+  "service": {
+    "name": "system-overlay",
+    "label": "RAM OverlayFS",
+    "units": [],
+    "mandatory": true,
+    "kind": "system",
+    "view": "overlay_policy_view:screen"
+  }
+}

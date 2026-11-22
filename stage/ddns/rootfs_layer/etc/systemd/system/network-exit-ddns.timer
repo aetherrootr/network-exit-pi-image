@@ -1,0 +1,13 @@
+[Unit]
+Description=Check scheduled DDNS updates
+Requires=network-exit-state.service
+After=network-exit-state.service
+
+[Timer]
+OnActiveSec=30s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+Unit=network-exit-ddns.service
+
+[Install]
+WantedBy=timers.target

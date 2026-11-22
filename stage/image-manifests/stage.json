@@ -1,0 +1,9 @@
+{
+  "id": "image-manifests",
+  "context": "host-shell",
+  "title": "Publish local build outputs",
+  "description": "Write manifests and checksums, then move completed output",
+  "requires": [
+    "image-compress"
+  ]
+}

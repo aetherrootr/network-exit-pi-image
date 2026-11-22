@@ -1,0 +1,58 @@
+{
+  "id": "ota",
+  "context": "chroot",
+  "description": "Install signed A/B update support",
+  "title": "Install signed A/B update support",
+  "requires": [
+    "base-system",
+    "service-manager"
+  ],
+  "runtime_requires": [
+    "system-power"
+  ],
+  "packages": [
+    "rauc",
+    "openssl",
+    "squashfs-tools"
+  ],
+  "commands": [
+    {
+      "name": "update",
+      "help": "Check or explicitly install signed system images",
+      "register": "ota_commands:update_parser",
+      "handler": "ota_commands:update_run",
+      "root": false
+    },
+    {
+      "name": "bootchain",
+      "help": "Inspect boot state or select the next slot",
+      "register": "ota_commands:bootchain_parser",
+      "handler": "ota_commands:bootchain_run"
+    }
+  ],
+  "status": "bootchain:show_status",
+  "private": {
+    "boot-backend": {
+      "module": "boot_backend",
+      "root": true
+    },
+    "confirm-boot": {
+      "module": "confirm_boot",
+      "root": true
+    },
+    "check-trial-deadline": {
+      "module": "check_trial_deadline",
+      "root": true
+    }
+  },
+  "service": {
+    "name": "ota",
+    "label": "A/B update services",
+    "units": [
+      "rauc.service"
+    ],
+    "mandatory": true,
+    "kind": "system",
+    "view": "ota_status_view:screen"
+  }
+}

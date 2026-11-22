@@ -1,0 +1,9 @@
+{
+  "id": "image-compress",
+  "context": "host-shell",
+  "title": "Compress factory image",
+  "description": "Compress and validate the private factory payload",
+  "requires": [
+    "image-factory"
+  ]
+}

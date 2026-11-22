@@ -1,0 +1,11 @@
+[Unit]
+Description=Confirm a healthy network appliance trial boot
+After=network-online.target ssh.service tailscaled.service
+Wants=network-online.target
+ConditionKernelCommandLine=network_exit.trial=1
+OnFailure=enodectl-reboot@health-check.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=60s
+ExecStart=/usr/lib/network-exit/confirm-boot

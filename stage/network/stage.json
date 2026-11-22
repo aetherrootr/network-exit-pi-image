@@ -1,0 +1,39 @@
+{
+  "id": "network",
+  "context": "chroot",
+  "description": "Install managed networking and firewall",
+  "title": "Install managed networking and firewall",
+  "requires": [
+    "system-state",
+    "service-manager"
+  ],
+  "packages": [
+    "nftables",
+    "iptables"
+  ],
+  "before_services": "network_setup:apply_selection",
+  "private": {
+    "network-runtime": {
+      "module": "network_runtime",
+      "root": true
+    }
+  },
+  "verify": [
+    {
+      "command": [
+        "nft",
+        "--version"
+      ]
+    }
+  ],
+  "service": {
+    "name": "network",
+    "label": "Network / firewall",
+    "units": [
+      "network-exit-network.service"
+    ],
+    "mandatory": true,
+    "kind": "system",
+    "view": "network_view:screen"
+  }
+}

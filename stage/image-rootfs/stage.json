@@ -1,0 +1,9 @@
+{
+  "id": "image-rootfs",
+  "context": "host-shell",
+  "title": "Expand and mount base root filesystem",
+  "description": "Preserve boot bytes and inspect the active kernel",
+  "requires": [
+    "image-workspace"
+  ]
+}

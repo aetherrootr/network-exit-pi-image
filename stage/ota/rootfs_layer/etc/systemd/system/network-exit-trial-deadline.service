@@ -1,0 +1,11 @@
+[Unit]
+Description=Restart an unconfirmed trial without waiting for network or STATE
+DefaultDependencies=no
+ConditionKernelCommandLine=network_exit.trial=1
+OnFailure=enodectl-reboot@trial-deadline.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=15s
+TimeoutStopSec=5s
+ExecStart=/usr/lib/network-exit/check-trial-deadline

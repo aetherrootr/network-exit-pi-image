@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+[[ $EUID == 0 ]] || { echo "Run with sudo." >&2; exit 1; }
+
+    # Read sysfs only. Opening /dev/watchdog0 would interfere with PID 1 ownership.
+    systemctl show --property=WatchdogDevice --property=RuntimeWatchdogUSec --property=RebootWatchdogUSec
+    device=/sys/class/watchdog/watchdog0
+    [[ -r $device/identity ]] || { echo 'Hardware watchdog0 is missing; hang recovery is not active.' >&2; exit 1; }
+    for field in identity state timeout nowayout bootstatus; do
+      if [[ -r $device/$field ]]; then
+        printf '%s: ' "$field"
+        cat "$device/$field"
+      fi
+    done
+    [[ $(cat "$device/identity") == sunxi-wdt ]] || { echo 'watchdog0 is not sunxi-wdt; review the watchdog device selection.' >&2; exit 1; }
+    [[ $(cat "$device/state") == active ]] || { echo 'Hardware watchdog is not armed; hang recovery is not active.' >&2; exit 1; }

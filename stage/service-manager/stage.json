@@ -1,0 +1,27 @@
+{
+  "id": "service-manager",
+  "context": "chroot",
+  "description": "Install modular service management",
+  "title": "Install modular service management",
+  "requires": [
+    "base-system"
+  ],
+  "commands": [
+    {
+      "name": "service",
+      "help": "Manage and configure services in the Textual dashboard",
+      "handler": "controller_commands:service_run"
+    },
+    {
+      "name": "config",
+      "help": "Configure this node through stage-provided interactive menus",
+      "register": "controller_commands:config_parser",
+      "handler": "controller_commands:config_run"
+    },
+    {
+      "name": "status",
+      "help": "Show local bootchain and installed service status",
+      "handler": "controller_commands:status_run"
+    }
+  ]
+}

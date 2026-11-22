@@ -1,0 +1,38 @@
+{
+  "id": "ddns",
+  "context": "chroot",
+  "description": "Install DDNS",
+  "title": "Install DDNS",
+  "requires": [
+    "network"
+  ],
+  "packages": [
+    "ddclient"
+  ],
+  "service": {
+    "name": "ddns",
+    "label": "DDNS",
+    "units": [
+      "network-exit-ddns.timer"
+    ],
+    "mandatory": false,
+    "validate": "ddns_setup:validate",
+    "after_disable": "ddns_setup:after_disable",
+    "view": "ddns_view:screen"
+  },
+  "private": {
+    "ddns-update": {
+      "call": "ddns:update",
+      "root": true
+    }
+  },
+  "verify": [
+    {
+      "command": [
+        "/usr/bin/ddclient",
+        "-list-protocols"
+      ],
+      "contains": "cloudflare"
+    }
+  ]
+}

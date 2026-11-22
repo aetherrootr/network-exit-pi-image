@@ -1,0 +1,8 @@
+Defaults env_reset
+Defaults use_pty
+Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults:pi !rootpw, !targetpw, !runaspw
+root ALL=(ALL:ALL) ALL
+# SSH public keys authorize pi administration; no pi password is configured.
+pi ALL=(ALL:ALL) NOPASSWD: ALL
+@includedir /etc/enodectl-sudoers.d
