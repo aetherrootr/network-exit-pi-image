@@ -63,9 +63,13 @@ def download(asset, destination):
     destination.chmod(0o400)
 
 
-def install(bundle, source, reboot=False, retry_failed=False):
+def install(bundle, source, reboot=False, retry_failed=False, skip_signature_verification=False, confirmation='', report=print):
     if os.geteuid() != 0:
         raise ValueError('Run enodectl update install with sudo')
+    if skip_signature_verification:
+        from ota_recovery import CONFIRMATION
+        if not bundle or confirmation != CONFIRMATION:
+            raise ValueError('Unsigned recovery requires a local bundle and the exact confirmation phrase: ' + CONFIRMATION)
     cache = STATE / 'update-cache'
     cache.mkdir(parents=True, exist_ok=True, mode=0o700)
     with LOCK.open('w') as lock:
@@ -76,7 +80,7 @@ def install(bundle, source, reboot=False, retry_failed=False):
             raise ValueError('Complete enodectl config before installing OTA updates')
         if state['ne_pending'] != 'none' and (int(state['ne_left']) > 0 or state['ne_pending'] == active):
             raise ValueError('A trial update is already pending; boot and confirm it before another update')
-        if not TRUST.is_file():
+        if not skip_signature_verification and not TRUST.is_file():
             raise ValueError('OTA trust certificate is missing')
         if state['ne_pending'] != 'none' and not retry_failed:
             raise ValueError('The previous trial was not confirmed; inspect it or explicitly use --retry-failed')
@@ -105,17 +109,38 @@ def install(bundle, source, reboot=False, retry_failed=False):
                 download(latest(source), local)
             # RAUC authenticates the bundle and enforces the compatible board and
             # inactive-slot selection. A checksum alone never authorizes installation.
-            subprocess.run(['rauc', 'info', f'--keyring={TRUST}', str(local)], check=True)
-            subprocess.run(['rauc', 'install', str(local)], check=True)
+            if skip_signature_verification:
+                from ota_recovery import install as recovery_install
+                recovery_install(local, info, active, state, STATE)
+            else:
+                subprocess.run(['rauc', 'info', f'--keyring={TRUST}', str(local)], check=True, capture_output=True)
+                subprocess.run(['rauc', 'install', str(local)], check=True, capture_output=True)
             _, running, after = platform()
             expected = 'B' if active == 'A' else 'A'
             if running != active or after['ne_pending'] != expected or after['ne_left'] != '3':
                 raise ValueError('Update activation did not produce the expected three-attempt trial; refusing reboot')
-            print(f'Installed to slot {expected}. Current slot {active} is unchanged. Three trial boots are available.')
+            report(f'Installed to slot {expected}. Current slot {active} is unchanged. Three trial boots are available.')
     if reboot:
         reboot_system(reason='update')
     else:
-        print('Run sudo enodectl reboot when ready. This command did not reboot the device.')
+        report('Run sudo enodectl reboot when ready. This command did not reboot the device.')
+
+
+def console_confirmation(bundle):
+    from ota_recovery import CONFIRMATION
+    if os.geteuid() != 0:
+        raise ValueError('Run enodectl update install with sudo')
+    if not bundle:
+        raise ValueError('Signature bypass requires an explicit local OTA bundle')
+    try:
+        with open('/dev/tty', 'w') as output, open('/dev/tty', 'r') as input_stream:
+            output.write('WARNING: OTA signature verification will be skipped for this install.\n'
+                         'The supplied image can execute arbitrary privileged code after boot.\n'
+                         f'Local bundle: {bundle}\nType {CONFIRMATION} to continue: ')
+            output.flush()
+            return input_stream.readline().strip()
+    except OSError as exc:
+        raise ValueError('Signature bypass requires an interactive terminal; connect with ssh -t or use the service TUI') from exc
 
 
 def configure_parser(parser):
@@ -126,6 +151,8 @@ def configure_parser(parser):
     install_parser.add_argument('bundle', nargs='?')
     install_parser.add_argument('--reboot', action='store_true', help='Reboot through enodectl after successful installation')
     install_parser.add_argument('--retry-failed', action='store_true', help='Allow a new install after an unconfirmed trial')
+    install_parser.add_argument('--skip-signature-verification', action='store_true',
+                                help='Recover from a local plain OTA bundle without authenticating its signature; requires typed confirmation')
 
 
 def run(args, parser):
@@ -135,7 +162,8 @@ def run(args, parser):
         else:
             source = json.loads(SOURCE.read_text())
             if args.update_action == 'install':
-                install(args.bundle, source, args.reboot, args.retry_failed)
+                confirmation = console_confirmation(args.bundle) if args.skip_signature_verification else ''
+                install(args.bundle, source, args.reboot, args.retry_failed, args.skip_signature_verification, confirmation)
             else:
                 current = json.loads(RELEASE.read_text())['version']
                 available = latest(source)

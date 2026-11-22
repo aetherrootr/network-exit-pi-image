@@ -127,7 +127,9 @@ limit_root_overlay "$2" "$3" "$4"
 
     def test_kernel_limits_and_fresh_upper_preserve_separate_state(self):
         missing = [name for name in ['unshare', 'mount', 'umount', 'sh'] if not shutil.which(name)]
-        probe = run('unshare', '--user', '--map-root-user', '--mount', 'true') if not missing else None
+        namespace = ['unshare', '--mount', '--propagation', 'private']
+        if os.geteuid() != 0: namespace[1:1] = ['--user', '--map-root-user']
+        probe = run(*namespace, 'true') if not missing else None
         if missing or probe.returncode:
             reason = f'Missing tools: {missing}' if missing else probe.stderr.strip()
             if os.environ.get('NETWORK_EXIT_OVERLAY_TESTS') == 'required': self.fail(reason)
@@ -135,7 +137,7 @@ limit_root_overlay "$2" "$3" "$4"
         # The parent owns cleanup after the private namespace has been destroyed,
         # including when a failed assertion leaves child mounts in place.
         with tempfile.TemporaryDirectory(prefix='enodectl-overlay-kernel-') as directory:
-            result = run('unshare', '--user', '--map-root-user', '--mount', sys.executable,
+            result = run(*namespace, sys.executable,
                          str(Path(__file__).resolve()), '--isolated', os.readlink('/proc/self/ns/mnt'),
                          directory, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

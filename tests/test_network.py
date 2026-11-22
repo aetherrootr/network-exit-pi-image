@@ -173,13 +173,16 @@ def isolated_checks(parent_namespace):
 class DeviceFirewallTests(unittest.TestCase):
     def test_exit_nat_return_traffic_and_access_guards(self):
         missing = [name for name in ['unshare', 'ip', 'nft', 'bash', 'sysctl'] if not shutil.which(name)]
-        probe = run('unshare', '--user', '--map-root-user', '--net', 'true', check=False) if not missing else None
+        # Native root can isolate the network directly. Mapping root into a new
+        # user namespace drops its ability to traverse runner-owned 0700 homes.
+        namespace = ['unshare', '--net'] if os.geteuid() == 0 else ['unshare', '--user', '--map-root-user', '--net']
+        probe = run(*namespace, 'true', check=False) if not missing else None
         if missing or probe.returncode:
             reason = f'Missing tools: {missing}' if missing else probe.stderr.strip()
             if os.environ.get('NETWORK_EXIT_NETWORK_TESTS') == 'required':
                 self.fail(reason)
             self.skipTest(reason)
-        result = run('unshare', '--user', '--map-root-user', '--net', sys.executable,
+        result = run(*namespace, sys.executable,
                      str(Path(__file__).resolve()), '--isolated', os.readlink('/proc/self/ns/net'), check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

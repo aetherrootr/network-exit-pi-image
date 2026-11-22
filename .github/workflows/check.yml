@@ -16,6 +16,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv ddclient nftables iproute2 openssl openssh-client openssh-server sudo rauc squashfs-tools u-boot-tools fdisk e2fsprogs cloud-guest-utils
+          sudo install -d -m 0755 /run/sshd
       - name: Prepare isolated controller packager
         run: |
           python3 -m venv "${{ runner.temp }}/enodectl-tools"

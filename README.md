@@ -59,7 +59,7 @@ sudo enodectl watchdog status
 
 Select a row and choose `Configure / view` to edit its current configuration or read its system policy. All configurable services have repeatable forms: Tailscale/Headscale, SSH keys and CA trust, WireGuard peers, Cloudflare token, sing-box JSON, DDNS and network/firewall policy. Opening a form does not install software, generate a new identity or reset settings. Each form applies only after confirmation; Back or Quit asks before discarding edits. Cloudflare/DDNS secrets load as blank masked fields; leaving them blank retains the existing secret for the same provider. WireGuard keeps its existing private key. The sing-box editor contains the full JSON, including any embedded credentials, so use a trusted terminal.
 
-The dashboard shows saved startup choices and current systemd runtime states. `Stage toggle` changes an optional service's draft choice; confirmed `Apply changes` starts/stops it and persists the choice. Refresh preserves unapplied startup choices. SSH, Tailscale and system components cannot be disabled through either the UI or backend. Fixed system components expose read-only policy/status pages; policy changes arrive through signed image updates. Enabling validates every newly selected service before performing changes. Failed operations reload saved choices and runtime status; earlier operations may already have completed. An apply failure leaves setup incomplete until retried and confirmed healthy.
+The dashboard shows saved startup choices and current systemd runtime states. `Stage toggle` changes an optional service's draft choice; confirmed `Apply changes` starts/stops it and persists the choice. Refresh preserves unapplied startup choices. SSH, Tailscale and system components cannot be disabled through either the UI or backend. Fixed policy pages are read-only; the OTA page also exposes explicit signed installation and recovery actions. Enabling validates every newly selected service before performing changes. Failed operations reload saved choices and runtime status; earlier operations may already have completed. An apply failure leaves setup incomplete until retried and confirmed healthy.
 
 `sudo enodectl config` opens the same dashboard after initial account setup. The old `config ssh`, `config service` and `config network` routes are removed. Use Tab to move focus, arrow keys to select rows, Enter to activate buttons, Escape to return, F5 to refresh the dashboard, and Ctrl+Q to quit. A terminal around 110 columns by 36 rows is recommended. Textual and its Python dependencies are bundled in the shiv archive during the build; no device-side pip/download is needed. ARM64 runtime and memory use still require board testing.
 
@@ -256,6 +256,49 @@ sudo enodectl reboot
 `install` explicitly downloads the latest bundle, or accepts a local bundle. It stages a private copy on STATE, verifies its signature, and asks RAUC to install only to the inactive root slot. RAUC enforces the board compatibility string. It does not overwrite the running slot, STATE, boot-control partition or raw SPL/U-Boot. Add `--reboot` only when an immediate reboot is intended. No timer or service performs update installation.
 
 Updates require the factory-provisioned public certificate. The signing private key is never included in the device or packages. SHA256 files detect corruption; the RAUC signature authorizes an OTA image. The pinned base kernel lacks `CONFIG_DM_VERITY`, so bundles explicitly use RAUC's signed `plain` format with root-only local staging. They do not provide live dm-verity protection of the running root filesystem. Bundles must fit in the currently available STATE space with a 64 MiB reserve.
+
+For an explicitly trusted local recovery package, an administrator can bypass
+signature authentication for one installation:
+
+```bash
+sudo enodectl update install /path/to/recovery.raucb --skip-signature-verification
+```
+
+The command requires an interactive terminal and the exact phrase
+`INSTALL UNVERIFIED OTA`. In `sudo enodectl service`, select `A/B update services`
+and `Configure / view` to open the OTA form. Signature bypass defaults to No;
+selecting Yes requires a local path, the same typed phrase and a final Apply
+confirmation. The form resets the bypass choice after success or failure and
+never reboots automatically. No verification override is saved as configuration.
+The normal CLI path and a freshly opened form always require valid signatures.
+
+Recovery accepts only the current board's `plain`, single `rootfs.img` bundle
+profile with no hooks, custom handlers or extra manifest sections. An unsigned
+SquashFS bundle or one signed by an untrusted/expired key can be used. It does
+not establish who produced the image: the supplied filesystem can execute
+arbitrary privileged code when booted. Only use this option for bytes obtained
+through an independently trusted process. This recovery path is distinct from
+RAUC's normal signed installer; `rauc info --no-verify` alone would not bypass
+the signature check performed by `rauc install`.
+
+The device must be running its confirmed slot with initialized STATE, without
+an active trial. Recovery validates the physical factory partition layout,
+board/version, exact root-slot size, image SHA256 and ext4 consistency. It
+extracts two bounded members into private STATE storage; allow space for the
+local bundle, a full 4092 MiB root image and the reserve. It rejects an in-use or
+read-only target, invalidates only the inactive slot before writing, and reads
+back its entire payload before arming the usual three health-confirmed trial
+boots. Failures retain the confirmed slot. SHA256 checks against an unsigned
+manifest detect corruption, but provide no publisher authentication.
+
+Each attempt that reaches writing preparation records its bundle/image hashes,
+version, target slot and result under `/var/lib/network-exit/ota-recovery/`.
+The installed image supplies its own subsequent OTA trust certificate; this
+operation does not edit the running slot's trust file. A/B fallback restores
+the previous slot and that slot's original trust. Recovery does not update
+RAUC's per-slot installation history; both slots explicitly use
+`install-same=true` so later ordinary installations still write their payload.
+Real block-device recovery and interruption/rollback tests remain required.
 
 After installation, for example A to B:
 

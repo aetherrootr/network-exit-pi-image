@@ -30,7 +30,7 @@
   "custom_image_built": false,
   "runtime_tested": false,
   "checks": [
-    "153 local tests passed with shiv composition/packaging, DDNS parser, SSH CA, network, overlay, OTA and STATE-growth tests required; no tests skipped; isolated /tmp tools only, no host package installation",
+    "165 local tests passed with shiv composition/packaging, DDNS parser, SSH CA, network, overlay, OTA and STATE-growth tests required; no tests skipped; isolated /tmp tools only, no host package installation",
     "Regular-file factory assembly checked actual MBR partitions, preservation of boot-prefix bytes, both root payloads and redundant initial boot records",
     "Torn and short boot-record writes preserve a valid record; RAUC backend does not confirm an inactive slot; controller slot switching rejects an invalid target",
     "Operator update checks never install or reboot; rejected verification never reaches RAUC install; final unconfirmed trial cannot overwrite fallback",
@@ -60,7 +60,7 @@
     "SSH user CA trust import/rotation/disable and atomic/link protection tested; real OpenSSH over local pipes accepted valid certificates and rejected wrong CA/principal, missing principals, expired/future, host and forged certificates; agent signing and reuse of the same CA/login public key passed",
     "FIDO2 SK public encodings accepted by real ssh-keygen validation and both importers; effective sshd policy permits SK CA signatures and direct authentication; no physical YubiKey signing/touch/PIN test performed",
     "Textual Pilot exercised staged SSH CA import/removal/save and last-authorization protection; backend tests retain duplicate/options preservation, concurrent-save protection and add-before-remove ordering under injected failures",
-    "Standalone public-key executable removed; addpub/add_sshpub controller commands rejected; concurrent TUI saves cannot overwrite each other; all 153 local tests passed with required integration tests",
+    "Standalone public-key executable removed; addpub/add_sshpub controller commands rejected; concurrent TUI saves cannot overwrite each other; all 165 local tests passed with required integration tests",
     "Textual enodectl service dashboard tested with real widgets and fixture services; SSH/Tailscale/system toggles disabled in UI and rejected by backend; staged changes, prevalidation, cancellation, root/STATE/setup-lock guards, read-only system refresh and runtime status queries passed",
     "Real upstream ddclient parser accepted generated Cloudflare, DuckDNS and DynDNS2 IPv4/IPv6 profiles including quoted credentials; worker tests covered bound HTTPS discovery, proxy bypass, no tunnel fallback, private temporary files, disabled/rate-limited updates and sanitized failures; no real DNS updates",
     "Isolated kernel tests verified managed host UDP allow/deny, default forward denial despite an earlier accept chain, WG NAT/return/private-destination guards and preservation of unrelated tables; host firewall OFF retains WG guard",
@@ -74,7 +74,9 @@
     "Stage source configuration relocation checked: fresh-download CLI consumes image-inputs/config without network in an isolated fixture; OTA config install verified in a temporary target with identical content/mode; optional config directories validated and JSON/ASCII checked",
     "Image builder relocation verified through root build/package entrypoints, array plan validation, source-tree-independent shiv runtime, factory archive extraction and signed OTA tests; no schema wrapper in the stage order file",
     "Boot selector source relocated to image-bootchain/config with identical SHA256; build-stage, boot-record and trial-deadline regressions passed; source and installer shell syntax checked; no U-Boot hardware execution or mkimage build performed in this relocation check",
-    "Tag and manual workflow trigger structure, inline shell and checkout-commit output checked locally; release validates the tag target against the checked-out build commit; OTA signing secrets are required before an image build"
+    "Tag and manual workflow trigger structure, inline shell and checkout-commit output checked locally; release validates the tag target against the checked-out build commit; OTA signing secrets are required before an image build",
+    "Explicit OTA recovery tested with unsigned SquashFS and real untrusted-signer RAUC bundles, strict manifest/board/size/hash/ext4 rejection, regular-file short writes/readback, durable invalidation/activation records, stale-state rejection and private controlling-terminal confirmation; Textual cancellation/default/reset guards passed",
+    "Source CI failures traced to missing sshd runtime directory and root user-namespace traversal of runner-owned directories; runner setup and root/non-root namespace selection corrected without relaxing namespace isolation"
   ],
   "pending_validation": [
     "Full image build on ARM64 runner with root/loop/mount access, including updated kernel and generated initramfs",
@@ -100,7 +102,8 @@
     "On-board firewall TUI over LAN/Tailscale, 90-second timer/disconnect/power-cycle rollback, real nftables/Tailscale coexistence and DDNS broadband-interface selection",
     "Real provider A/AAAA updates, token permissions, cache/retry behavior and DDNS STATE persistence across reboot/OTA",
     "Full staged ARM64 image build, chroot installers and packaged controller/private systemd entrypoints on actual Armbian; verify root shiv cache, first-boot setup, reboot controls, RAUC and service configuration on board",
-    "Textual 8.2.8 on ARM64 Python 3.13 over SSH and serial consoles: dimensions, keyboard input, disconnect/reconnect, startup/extraction time and peak memory on small-RAM boards"
+    "Textual 8.2.8 on ARM64 Python 3.13 over SSH and serial consoles: dimensions, keyboard input, disconnect/reconnect, startup/extraction time and peak memory on small-RAM boards",
+    "On-board explicit unsigned/untrusted OTA recovery: block-device exclusivity, large STATE extraction, card write/readback, interruption before activation, three-attempt rollback and post-recovery signing trust"
   ],
   "github_actions_configured": true,
   "github_actions_run": false,
@@ -170,7 +173,7 @@
   "ssh_access_ui": "Textual table: purpose, type, SHA256 fingerprint and escaped comment; Add login/CA, Details, Remove and explicit Save; staging, cancellation and last-authorization protection",
   "ssh_access_ui_hardware_tested": false,
   "ssh_key_management_entrypoint": "enodectl service -> SSH / public keys / CA; no separate importer/add-key command; factory pi-key personalization retained",
-  "service_management_ui": "enodectl service: Textual dashboard, repeatable per-service forms, staged optional startup changes, confirmed Apply and discard; mandatory SSH/Tailscale/system components cannot be disabled; fixed policy pages are read-only",
+  "service_management_ui": "enodectl service: Textual dashboard, repeatable per-service forms, staged optional startup changes, confirmed Apply and discard; mandatory SSH/Tailscale/system components cannot be disabled; fixed policy pages are read-only; OTA also exposes explicit signed/recovery installation",
   "service_management_ui_hardware_tested": false,
   "ddns": "Optional preinstalled ddclient; default disabled; Cloudflare/DuckDNS/DynDNS2; one A or AAAA profile; credentials/cache/status on STATE; bounded one-shot systemd timer; no real provider updates tested",
   "host_firewall": "Optional/default OFF enode_host nftables table; explicit SSH source CIDRs/uplink listener ports; owned-table atomic updates; independent WG protection retained when OFF",
@@ -198,7 +201,7 @@
   "tui_logic_separation": "Per-stage *_view.py/ssh_view.py/service_tui.py presentation; *_config.py/ssh_editor.py/service_manager.py backends; shared Textual form/confirmation/status widgets in enodectl_core/textual_ui.py",
   "textual_host_interactions_tested": true,
   "textual_arm64_runtime_tested": false,
-  "local_test_count": 153,
+  "local_test_count": 165,
   "local_tests_skipped": 0,
   "build_stage_contexts": {
     "host-shell": "Shared build_stage function for image resources and cleanup state",
@@ -234,5 +237,27 @@
     "push of v* tag",
     "workflow_dispatch"
   ],
-  "image_release_policy": "Tag builds publish after successful build/signature/package validation; manual builds upload artifacts unless publish_release is selected; merge and tag creation remain operator actions"
+  "image_release_policy": "Tag builds publish after successful build/signature/package validation; manual builds upload artifacts unless publish_release is selected; merge and tag creation remain operator actions",
+  "ota_signature_bypass": {
+    "default": false,
+    "cli_flag": "--skip-signature-verification",
+    "confirmation": "INSTALL UNVERIFIED OTA",
+    "local_bundle_required": true,
+    "tui": "enodectl service -> A/B update services; bypass resets after success or failure",
+    "method": "Independent strict plain single-rootfs recovery writer; normal RAUC install remains signature-enforcing",
+    "retained_checks": [
+      "root/initialized STATE",
+      "running confirmed slot/no active trial",
+      "factory disk/partition identity and layout",
+      "board/version/plain manifest without hooks",
+      "exact root-slot capacity and image SHA256",
+      "ext4 consistency",
+      "exclusive unmounted writable block target",
+      "full write/readback",
+      "three-attempt health-confirmed A/B trial"
+    ],
+    "persistent_override": false,
+    "audit": "STATE/ota-recovery/*.json",
+    "hardware_tested": false
+  }
 }

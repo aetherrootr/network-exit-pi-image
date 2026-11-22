@@ -8,7 +8,8 @@
     "service-manager"
   ],
   "runtime_requires": [
-    "system-power"
+    "system-power",
+    "system-state"
   ],
   "packages": [
     "rauc",

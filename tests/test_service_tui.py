@@ -157,11 +157,11 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
         app=ServiceApp(model=service_manager.ServiceModel())
         with ExitStack() as stack:
             loaders=[]
-            for name in ('state_policy','overlay_policy','watchdog_policy','power_status','ota_status'):
+            for name in ('state_policy','overlay_policy','watchdog_policy','power_status'):
                 loaders.append(stack.enter_context(patch(name+'.details',return_value='Fixture system status')))
             async with app.run_test(size=(110,42)) as pilot:
                 await self.settle(app,pilot)
-                for name in ('system-state','system-overlay','system-watchdog','system-power','ota'):
+                for name in ('system-state','system-overlay','system-watchdog','system-power'):
                     await self.select(app,pilot,name)
                     self.assertTrue(app.query_one('#toggle',Button).disabled)
                     await pilot.click('#configure');await self.settle(app,pilot)
@@ -170,6 +170,27 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.click('#policy-refresh');await self.settle(app,pilot)
                     await pilot.click('#policy-back');await self.settle(app,pilot)
             for loader in loaders:self.assertEqual(loader.call_count,2)
+
+    async def test_ota_bypass_is_explicit_cancelled_without_install_and_reset_after_success(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        from ota_recovery import CONFIRMATION
+        with patch('ota_update_config.save',return_value='Installed to inactive slot; reboot manually.') as install:
+            async with app.run_test(size=(120,42)) as pilot:
+                await self.settle(app,pilot);await self.select(app,pilot,'ota')
+                self.assertTrue(app.query_one('#toggle',Button).disabled)
+                await pilot.click('#configure');await self.settle(app,pilot)
+                form=app.screen
+                self.assertFalse(form.query_one('#field-skip_signature_verification',Select).value)
+                form.query_one('#field-bundle',Input).value='/fixture/recovery.raucb'
+                form.query_one('#field-skip_signature_verification',Select).value=True
+                form.query_one('#field-confirmation',Input).value=CONFIRMATION
+                await pilot.click('#form-save');await self.confirm(app,pilot,False)
+                install.assert_not_called()
+                await pilot.click('#form-save');await self.confirm(app,pilot)
+                self.assertTrue(install.call_args.args[0]['skip_signature_verification'])
+                self.assertEqual(install.call_args.args[0]['confirmation'],CONFIRMATION)
+                self.assertFalse(form.query_one('#field-skip_signature_verification',Select).value)
+                self.assertEqual(form.query_one('#field-confirmation',Input).value,'')
 
     async def test_form_quit_cancel_retains_unsaved_changes(self):
         app=ServiceApp(model=service_manager.ServiceModel())

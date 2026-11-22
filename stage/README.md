@@ -124,6 +124,11 @@ Keep presentation and operations separate. For example,
 not own provider settings. `service-manager/enodectl_component/service_manager.py` owns
 startup choices and completion, while `service_tui.py` draws the dashboard.
 SSH uses `ssh_view.py` with `ssh_editor.py` and `ssh_access.py` backends.
+OTA uses `ota_status_view.py` for its install form, `ota_update_config.py` for
+form actions, `update.py` for normal signed installation and `ota_recovery.py`
+for explicitly confirmed local signature-bypass recovery. Required system
+components retain their non-disable policy; the OTA page exposes an update
+action while other fixed policy pages remain read-only.
 
 Loading a form must be read-only and reuse existing device identities. Sensitive
 fields load blank, with documented blank-to-retain behavior. Writes need an
