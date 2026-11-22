@@ -6,6 +6,9 @@ set -euo pipefail
   exit 2
 }
 source "${ENODECTL_STAGE_ROOT:?}/common.sh"
+# The builder mounts a fresh /run, including when openssh-server was already
+# installed in the base image. sshd -T still requires its privilege-separation dir.
+install -d -m 755 /run/sshd
 ssh-keygen -q -t ed25519 -N '' -f /run/enodectl-ssh-policy-test
 /usr/sbin/sshd -T -h /run/enodectl-ssh-policy-test -C user=root,host=localhost,addr=127.0.0.1 | grep -qx 'permitrootlogin no'
 /usr/sbin/sshd -T -h /run/enodectl-ssh-policy-test -C user=pi,host=localhost,addr=127.0.0.1 > /run/enodectl-ssh-policy.txt
