@@ -8,5 +8,7 @@ set -euo pipefail
 source "${ENODECTL_STAGE_ROOT:?}/common.sh"
 install_declared_packages
 install -D -m 644 config/update-source.json /usr/share/network-exit/update-source.json
+# Debian's rauc package does not create this local-configuration directory.
+install -d -m 755 /etc/rauc
 ln -sfn /run/rauc/system.conf /etc/rauc/system.conf
 systemctl enable network-exit-confirm.timer network-exit-trial-deadline.timer
