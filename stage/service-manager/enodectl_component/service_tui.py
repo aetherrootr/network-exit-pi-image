@@ -111,6 +111,9 @@ class ServiceApp(App):
             except Exception as exc: self.failed(exc)
         elif button in ('apply', 'finish'):
             message = 'Apply selected startup changes now?' if button == 'apply' else 'Apply startup choices and confirm setup health? SSH keys and Tailscale authorization must be ready.'
+            if button == 'finish':
+                for stage in registry.stages():
+                    if stage.get('setup_notice'): message += '\n' + stage['setup_notice']
             self.push_screen(Confirm(message), lambda yes: self.start_operation(button == 'finish') if yes else None)
 
     def start_operation(self, finish):

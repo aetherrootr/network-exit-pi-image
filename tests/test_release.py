@@ -62,13 +62,15 @@ import sys
 spec = importlib.util.spec_from_file_location('burn', sys.argv[1])
 burn = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(burn)
-burn.read_manifest = lambda directory: ({'image_bytes': 512}, None)
+burn.read_manifest = lambda directory: ({'image_bytes': 512, 'layout': 'ab-v2'}, None)
 burn.inspect_device = lambda *args: {'size': 1024, 'model': 'fixture'}
 burn.verify_image = lambda *args: None
+burn.read_ssh_keys = lambda *args: 'fixture-public-key\n'
+burn.provision_ssh_key = lambda *args: print('FIXTURE_KEY_PROVISIONED', flush=True)
 burn.os.geteuid = lambda: 0
 burn.write_image = lambda *args: print('FIXTURE_WRITE_CALLED', flush=True)
 burn.subprocess.run = lambda *args, **kwargs: None
-sys.argv = ['burn.py', '/dev/null']
+sys.argv = ['burn.py', '/dev/null', '--ssh-key', sys.argv[1]]
 burn.main()
 """
         for answer, accepted in [(b'ERASE /dev/null\n', True), (b'ERASE\n', False),
@@ -102,6 +104,7 @@ burn.main()
                     output, _ = process.communicate(timeout=5)
                     self.assertEqual(process.returncode, 0 if accepted else 1, output.decode())
                     self.assertEqual(b'FIXTURE_WRITE_CALLED' in output, accepted, output.decode())
+                    self.assertEqual(b'FIXTURE_KEY_PROVISIONED' in output, accepted, output.decode())
                     if not accepted: self.assertIn(b'Cancelled. Nothing was written', output)
                 finally:
                     if process is not None and process.poll() is None:
@@ -109,6 +112,30 @@ burn.main()
                         process.communicate()
                     os.close(master)
                     if slave is not None: os.close(slave)
+
+    def test_cli_requires_a_nonempty_public_key_before_device_access_or_sudo(self):
+        code = r"""
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('burn', sys.argv[1])
+burn = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(burn)
+burn.read_manifest = lambda directory: ({'image_bytes':512, 'layout':'ab-v2'}, None)
+burn.read_ssh_keys = lambda *args: ''
+def forbidden(*args): raise AssertionError('Device access or sudo must not happen')
+burn.inspect_device = forbidden
+burn.write_image = forbidden
+burn.os.execvp = forbidden
+sys.argv = ['burn.py', *sys.argv[2:]]
+burn.main()
+"""
+        for arguments, status in [(['/dev/null'], 2), (['/dev/null', '--dry-run'], 2),
+                                  (['/dev/null', '--ssh-key', str(ROOT / 'LICENSE')], 1)]:
+            with self.subTest(arguments=arguments):
+                result = subprocess.run([sys.executable, '-c', code, str(ROOT / 'release/lib/burn.py'), *arguments],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertIn('--ssh-key', result.stderr)
+                self.assertNotIn('AssertionError', result.stderr)
 
     def test_writer_handles_short_writes_and_reads_back(self):
         # A disposable regular file tests the internal writer; CLI rejects regular files.

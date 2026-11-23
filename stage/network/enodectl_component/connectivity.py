@@ -11,6 +11,8 @@ DEFAULT = {'wifi_enabled': False, 'wifi_interface': 'auto', 'wifi_ssid': '',
            'wifi_security': 'psk', 'wifi_password': '', 'wifi_hidden': False,
            'wifi_country': ''}
 SYS_NET = Path('/sys/class/net')
+WIRED_ACTIVE = Path('/etc/netplan/10-dhcp-all-interfaces.yaml')
+WIRED_DHCP = Path('/usr/share/network-exit/wired-dhcp.yaml')
 
 
 def directory(): return components.CONFIG / 'connectivity'
@@ -138,6 +140,23 @@ def commit():
     finally: os.close(descriptor)
     for name in ('previous-profile.json', 'previous-netplan.yaml'):
         (root / name).unlink(missing_ok=True)
+
+
+def finish_wired_provisioning():
+    """A confirmed setup permanently retires the temporary bootstrap address."""
+    marker = components.CONFIG / 'network-provisioned'
+    if not marker.exists():
+        if not (components.CONFIG / 'initialized').exists(): return
+        components.save(marker, '1\n')
+    candidate = WIRED_DHCP.read_text()
+    previous = WIRED_ACTIVE.read_text()
+    if previous == candidate: return
+    components.save(WIRED_ACTIVE, candidate)
+    try:
+        activate()
+    except Exception:
+        components.save(WIRED_ACTIVE, previous)
+        raise
 
 
 def management_interfaces(device):

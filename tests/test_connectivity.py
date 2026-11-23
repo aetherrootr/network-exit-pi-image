@@ -34,6 +34,14 @@ class ConnectivityTests(unittest.TestCase):
         stack.enter_context(patch.object(components, 'CONFIG', self.config))
         stack.enter_context(patch.object(network, 'STATE', self.state))
         stack.enter_context(patch.object(connectivity, 'SYS_NET', self.sysnet))
+        self.wired = self.root / 'etc/netplan/10-dhcp-all-interfaces.yaml'
+        self.wired.parent.mkdir(parents=True)
+        self.dhcp = self.root / 'usr/share/network-exit/wired-dhcp.yaml'
+        self.dhcp.parent.mkdir(parents=True)
+        self.dhcp.write_text('dhcp-only-fixture\n')
+        self.wired.write_text('initial-static-fixture\n')
+        stack.enter_context(patch.object(connectivity, 'WIRED_ACTIVE', self.wired))
+        stack.enter_context(patch.object(connectivity, 'WIRED_DHCP', self.dhcp))
         stack.enter_context(patch.object(network.os, 'geteuid', return_value=0))
         stack.enter_context(patch.object(network.os.path, 'ismount', return_value=True))
         self.apply = stack.enter_context(patch.object(network, 'apply'))
@@ -118,7 +126,8 @@ class ConnectivityTests(unittest.TestCase):
         self.root.joinpath('etc/network-exit').parent.mkdir(parents=True, exist_ok=True)
         self.root.joinpath('etc/network-exit').symlink_to(self.config)
         templates = self.root / 'usr/share/network-exit'
-        shutil.copytree(LAYER / 'usr/share/network-exit', templates)
+        shutil.copytree(LAYER / 'usr/share/network-exit', templates, dirs_exist_ok=True)
+        (templates / 'wired-bootstrap.yaml').write_text('initial-static-fixture\n')
         script = LAYER / 'etc/initramfs-tools/scripts/init-bottom/zzz-enode-connectivity'
         def boot():
             process = real_run(['sh', str(script)], env={**os.environ, 'rootmnt': str(self.root)},
@@ -127,6 +136,7 @@ class ConnectivityTests(unittest.TestCase):
             self.assertEqual(process.returncode, 0, (out + err).decode())
         boot()
         self.assertEqual(connectivity.load(), connectivity.DEFAULT)
+        self.assertEqual(self.wired.read_text(), 'initial-static-fixture\n')
         network.begin(dict(network.DEFAULT), link_settings=self.profile())
         boot()
         self.assertEqual(connectivity.load(), connectivity.DEFAULT)
@@ -139,6 +149,35 @@ class ConnectivityTests(unittest.TestCase):
         boot()
         self.assertEqual(connectivity.load(), self.profile())
         self.assertFalse((connectivity.directory() / 'pending').exists())
+        components.save(self.config / 'initialized', '1\n')
+        boot()
+        self.assertEqual(self.wired.read_text(), self.dhcp.read_text())
+        (self.config / 'initialized').unlink()
+        boot()
+        self.assertEqual(self.wired.read_text(), self.dhcp.read_text())
+
+    def test_successful_setup_retires_static_address_and_later_failures_do_not_reopen_it(self):
+        connectivity.finish_wired_provisioning()
+        self.activate.assert_not_called()
+        self.assertEqual(self.wired.read_text(), 'initial-static-fixture\n')
+        components.save(self.config / 'initialized', '1\n')
+        connectivity.finish_wired_provisioning()
+        self.assertEqual(self.wired.read_text(), self.dhcp.read_text())
+        self.assertTrue((self.config / 'network-provisioned').exists())
+        self.activate.assert_called_once()
+        (self.config / 'initialized').unlink()
+        connectivity.finish_wired_provisioning()
+        self.activate.assert_called_once()
+        self.assertTrue((self.config / 'network-provisioned').exists())
+
+    def test_failed_dhcp_activation_retries_without_losing_the_bootstrap_connection(self):
+        components.save(self.config / 'initialized', '1\n')
+        self.activate.side_effect = ValueError('activation failed')
+        with self.assertRaises(ValueError): connectivity.finish_wired_provisioning()
+        self.assertEqual(self.wired.read_text(), 'initial-static-fixture\n')
+        self.activate.side_effect = None
+        connectivity.finish_wired_provisioning()
+        self.assertEqual(self.wired.read_text(), self.dhcp.read_text())
 
     def test_netplan_errors_never_expose_passwords(self):
         # Exercise the real function behind the mock with a captured tool error.
@@ -148,7 +187,7 @@ class ConnectivityTests(unittest.TestCase):
 
 
 class NetplanGenerationTests(unittest.TestCase):
-    def test_real_netplan_renders_dhcp_link_local_wpa2_and_wpa3_in_a_private_root(self):
+    def test_real_netplan_renders_dhcp_bootstrap_static_wpa2_and_wpa3_in_a_private_root(self):
         generator = os.environ.get('ENODECTL_TEST_NETPLAN_GENERATE')
         command = [generator] if generator else ([shutil.which('netplan'), 'generate'] if shutil.which('netplan') else None)
         if command is None:
@@ -171,7 +210,8 @@ class NetplanGenerationTests(unittest.TestCase):
                 wired = (root / 'run/systemd/network/10-netplan-all-eth-interfaces.network').read_text()
                 wifi = (root / 'run/systemd/network/10-netplan-wlan0.network').read_text()
                 self.assertIn('DHCP=yes', wired)
-                self.assertIn('LinkLocalAddressing=yes', wired)
+                self.assertIn('LinkLocalAddressing=ipv6', wired)
+                self.assertNotIn('192.168.77.1', wired)
                 self.assertIn('RouteMetric=100', wired)
                 self.assertIn('RouteMetric=600', wifi)
                 wpa = (root / 'run/netplan/wpa-wlan0.conf')
@@ -179,3 +219,12 @@ class NetplanGenerationTests(unittest.TestCase):
                 expected = 'WPA-PSK' if mode == 'psk' else 'SAE'
                 self.assertIn(expected, wpa.read_text())
                 self.assertNotIn(profile['wifi_password'], result.stdout + result.stderr)
+            import yaml
+            config = yaml.safe_load((root / 'etc/netplan/10-dhcp-all-interfaces.yaml').read_text())
+            config['network']['ethernets']['all-eth-interfaces']['addresses'] = ['192.168.77.1/24']
+            (root / 'etc/netplan/10-dhcp-all-interfaces.yaml').write_text(json.dumps(config))
+            result = subprocess.run([*command, '--root-dir', str(root)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0)
+            wired = (root / 'run/systemd/network/10-netplan-all-eth-interfaces.network').read_text()
+            self.assertIn('Address=192.168.77.1/24', wired)
+            self.assertIn('DHCP=yes', wired)

@@ -26,3 +26,19 @@ for pair in 'wifi-default-profile.json profile.json' 'wifi-default-netplan.yaml 
     fi
     chmod 600 "$root/$2"
 done
+# The permanent marker prevents a later failed reconfiguration from reopening
+# factory provisioning. Migrate previously initialized nodes directly to DHCP.
+config="$rootmnt/etc/network-exit"
+if [ -f "$config/initialized" ] || [ -f "$config/network-provisioned" ]; then
+    if [ ! -f "$config/network-provisioned" ]; then
+        printf '1\n' > "$config/network-provisioned.boot-new"
+        chmod 600 "$config/network-provisioned.boot-new"
+        mv -f "$config/network-provisioned.boot-new" "$config/network-provisioned"
+    fi
+    template=wired-dhcp.yaml
+else
+    template=wired-bootstrap.yaml
+fi
+cp "$rootmnt/usr/share/network-exit/$template" "$rootmnt/etc/netplan/10-dhcp-all-interfaces.yaml.boot-new"
+chmod 600 "$rootmnt/etc/netplan/10-dhcp-all-interfaces.yaml.boot-new"
+mv -f "$rootmnt/etc/netplan/10-dhcp-all-interfaces.yaml.boot-new" "$rootmnt/etc/netplan/10-dhcp-all-interfaces.yaml"

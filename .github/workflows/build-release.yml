@@ -189,10 +189,10 @@ jobs:
           For initial provisioning, download network-exit-factory-*.tar.gz, extract it, enter its directory, and run on Linux:
 
           ```bash
-          ./burn.sh /dev/xxx
+          ./burn.sh /dev/xxx --ssh-key ~/.ssh/id_ed25519.pub
           ```
 
-          Use a whole-card device path. The script verifies the image, rejects mounted devices, requests sudo, asks for confirmation, writes the image, and verifies it by reading it back. All SD card data will be overwritten.
+          Provide your pi login SSH public key and a whole-card device path. The script verifies the image, rejects mounted devices, requests sudo, asks for confirmation, writes the image, and verifies it by reading it back. All SD card data will be overwritten.
 
           The first interactive pi SSH login automatically opens the setup wizard. Tailscale is mandatory and supports the official control plane or Headscale. WireGuard, Cloudflare Tunnel and sing-box are preinstalled optional capabilities selected in that wizard. For an existing A/B device, invoke enodectl update manually to check and install the signed network-exit-ota-*.raucb package. No unattended image installation is enabled. See README for trial boots, confirmation and rollback.
           NOTES

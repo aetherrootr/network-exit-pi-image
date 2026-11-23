@@ -17,7 +17,7 @@ import connectivity
 STATE = Path('/var/lib/network-exit')
 TRIAL_SECONDS = 90
 DEFAULT = {'firewall': False, 'uplink': 'auto',
-           'ssh_sources': ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', 'fc00::/7', 'fe80::/10'],
+           'ssh_sources': ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7', 'fe80::/10'],
            'tcp_ports': [], 'udp_ports': []}
 
 
@@ -228,6 +228,7 @@ def _sync_directory(path):
 def refresh_uplink():
     with lock():
         if (STATE / 'network-pending.json').exists(): return
+        connectivity.finish_wired_provisioning()
         settings = load()
         if not settings['firewall'] and not (components.CONFIG / 'rules.nft').exists(): return
         device = uplink(settings)
@@ -237,7 +238,9 @@ def refresh_uplink():
 
 def diagnostics():
     profile = connectivity.form_values()
-    lines = ['Direct Ethernet: enode.local; preferred IPv4LL address 169.254.77.1 (conflicts may select another address).',
+    provisioned = (components.CONFIG / 'network-provisioned').exists() or (components.CONFIG / 'initialized').exists()
+    lines = ['Ethernet: DHCP only after provisioning; temporary bootstrap address 192.168.77.1/24 before initial setup.',
+             'Provisioning: ' + ('complete; bootstrap address retired or removal pending' if provisioned else 'initial setup'),
              'Wi-Fi: ' + ('enabled' if profile['wifi_enabled'] else 'disabled'),
              'DHCP route metrics: Ethernet 100, Wi-Fi 600. Ethernet IPv6 RA metric: 100. No Internet probing/failover is performed.']
     for command in (['ip', '-brief', 'address'], ['ip', '-4', 'route'], ['ip', '-6', 'route']):

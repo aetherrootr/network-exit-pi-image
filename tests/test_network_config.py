@@ -41,7 +41,7 @@ class NetworkPolicyTests(unittest.TestCase):
     def test_management_ssh_dhcp_and_mdns_remain_available_on_wired_and_wifi(self):
         rules = network.host_rules(self.settings(firewall=True), 'wlan0', {}, ['end0', 'wlan0'])
         for link in ('end0', 'wlan0'):
-            self.assertIn(f'iifname "{link}" ip saddr 169.254.0.0/16 tcp dport 22 accept', rules)
+            self.assertIn(f'iifname "{link}" ip saddr 192.168.0.0/16 tcp dport 22 accept', rules)
             self.assertIn(f'iifname "{link}" udp sport 67 udp dport 68 accept', rules)
             self.assertIn(f'iifname "{link}" ip ttl 255 udp dport 5353 accept', rules)
         self.assertIn('host-forward-deny', rules)

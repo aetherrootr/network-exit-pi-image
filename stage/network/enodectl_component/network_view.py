@@ -17,4 +17,4 @@ def screen():
         Field('wifi_hidden', 'Hidden Wi-Fi SSID', 'bool'),
         Field('wifi_country', 'Wi-Fi country code, e.g. `JP`, or blank (without backticks)'),
     ], backend.load, backend.save, backend.details,
-        help_text='Direct Ethernet: `ssh pi@enode.local`; IPv4LL prefers `169.254.77.1`. Ethernet DHCP is preferred over Wi-Fi. Credentials persist on STATE. Changes require a NEW SSH connection and confirmation within 90 seconds; timeout/disconnect restores the previous settings.')
+        help_text='Initial setup: Ethernet `192.168.77.1/24`; PC `192.168.77.2/24`, no gateway/DNS. Completing setup removes this temporary address; normal Ethernet uses DHCP. Wi-Fi credentials persist on STATE. Changes require a NEW SSH connection and confirmation within 90 seconds.')
