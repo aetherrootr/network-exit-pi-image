@@ -79,11 +79,11 @@ def open_services(first_boot=False):
     import os
     from accounts import initialization_lock
     if os.geteuid() != 0 or not os.path.ismount(components.STATE):
-        raise ValueError('Run sudo enodectl service on a node with STATE mounted')
+        raise ValueError('Run `sudo enodectl service` on a node with STATE mounted')
     from service_tui import ServiceApp
     import sys
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        raise ValueError('The service dashboard requires an interactive terminal; connect with ssh -t')
+        raise ValueError('The service dashboard requires an interactive terminal; connect with `ssh -t`')
     with initialization_lock():
         ensure_management()
         return ServiceApp(first_boot=first_boot).run()

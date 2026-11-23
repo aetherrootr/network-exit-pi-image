@@ -47,7 +47,7 @@ class InitializationTests(unittest.TestCase):
         self.assertFalse((self.config/'initialized').exists())
         with patch.object(update,'STATE',self.root),patch.object(update,'LOCK',self.root/'ota.lock'), \
                 patch.object(update.os,'geteuid',return_value=0),patch.object(update,'platform',return_value=({},'A',{})):
-            with self.assertRaisesRegex(ValueError,'Complete enodectl config'):update.install(None,{})
+            with self.assertRaisesRegex(ValueError,'`sudo enodectl config`'):update.install(None,{})
 
     def test_successful_setup_persists_mandatory_services_after_all_operations(self):
         operations=[]

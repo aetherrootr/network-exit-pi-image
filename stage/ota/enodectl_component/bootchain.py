@@ -72,9 +72,9 @@ def show_status():
 
 def switch_slot(target, reboot=False, retry_failed=False):
     if os.geteuid() != 0:
-        raise ValueError('Run sudo enodectl bootchain switch')
+        raise ValueError('Run `sudo enodectl bootchain switch A` or `sudo enodectl bootchain switch B`')
     if target not in ('A', 'B'):
-        raise ValueError('Choose slot A or B')
+        raise ValueError('Choose slot `A` or `B`')
     with LOCK.open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         _, current, before = platform()
@@ -83,7 +83,7 @@ def switch_slot(target, reboot=False, retry_failed=False):
         if before[f'ne_{target}'] != '1':
             raise ValueError('The selected slot is invalid or has an incomplete installation')
         if before['ne_pending'] == target and before['ne_left'] == '0' and not retry_failed:
-            raise ValueError('This slot exhausted its trial attempts; explicitly use --retry-failed to try again')
+            raise ValueError('This slot exhausted its trial attempts; explicitly use `--retry-failed` to try again')
         if before['ne_pending'] != target or before['ne_left'] == '0':
             name = 'rootfs.0' if target == 'A' else 'rootfs.1'
             subprocess.run(['rauc', 'status', 'mark-active', name], check=True)
@@ -94,4 +94,4 @@ def switch_slot(target, reboot=False, retry_failed=False):
     if reboot:
         reboot_system(reason='slot-switch')
     else:
-        print('Run sudo enodectl reboot when ready. The running system has not changed.')
+        print('Run `sudo enodectl reboot` when ready. The running system has not changed.')

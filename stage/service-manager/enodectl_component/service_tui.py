@@ -43,7 +43,7 @@ class ServiceApp(App):
         with Horizontal():
             yield Button('Finish setup', id='finish')
             yield Button('Quit', id='quit')
-        yield Static('Tab: move focus | Arrows: select row | Enter: button | F5: refresh | Ctrl+Q: quit')
+        yield Static('`Tab`: move focus | `Arrows`: select row | `Enter`: button | `F5`: refresh | `Ctrl+Q`: quit')
 
     def on_mount(self):
         self.query_one('#services', DataTable).add_columns('Service', 'Startup', 'Runtime', 'Policy')
@@ -147,5 +147,5 @@ class ServiceApp(App):
 
 def configure():
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        raise ValueError('The service dashboard requires an interactive terminal; connect with ssh -t')
+        raise ValueError('The service dashboard requires an interactive terminal; connect with `ssh -t`')
     return ServiceApp().run()

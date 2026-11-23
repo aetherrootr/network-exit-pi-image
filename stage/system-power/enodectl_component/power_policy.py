@@ -48,10 +48,10 @@ def blocked_reason(arguments):
     command, operands, uncertain = command_arguments(arguments)
     forbidden = POWER_COMMANDS | POWER_UNITS
     if uncertain and any(item in forbidden for item in arguments):
-        return 'Direct power control is disabled. Use sudo enodectl reboot; poweroff is not supported.'
+        return 'Direct power control is disabled. Use `sudo enodectl reboot`; poweroff is not supported.'
     # Read-only inspection is allowed, including status of a masked power target.
     if command in READ_ONLY:
         return None
     if command in POWER_COMMANDS or any(item in forbidden for item in operands):
-        return 'Direct power control is disabled. Poweroff is not supported. Use sudo enodectl reboot to restart this node.'
+        return 'Direct power control is disabled. Poweroff is not supported. Use `sudo enodectl reboot` to restart this node.'
     return None

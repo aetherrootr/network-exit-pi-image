@@ -5,7 +5,7 @@ import network_management as backend
 def screen():
     return FormScreen('Network and firewall', [
         Field('firewall', 'Host firewall enabled', 'bool'),
-        Field('uplink', 'Broadband interface: auto or explicit device name'),
+        Field('uplink', 'Broadband interface: `auto` or explicit device name (without backticks)'),
         Field('ssh_sources', 'SSH source networks, comma-separated'),
         Field('tcp_ports', 'Additional inbound TCP ports, comma-separated'),
         Field('udp_ports', 'Additional inbound UDP ports, comma-separated'),

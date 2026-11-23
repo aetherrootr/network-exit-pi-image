@@ -1,10 +1,10 @@
 #!/bin/sh
 case "${0##*/}" in
     reboot)
-        echo 'Direct reboot is disabled. Use sudo enodectl reboot.' >&2
+        echo 'Direct reboot is disabled. Use `sudo enodectl reboot`.' >&2
         ;;
     *)
-        echo 'Poweroff and direct power control are disabled. Use sudo enodectl reboot to restart this node.' >&2
+        echo 'Poweroff and direct power control are disabled. Use `sudo enodectl reboot` to restart this node.' >&2
         ;;
 esac
 exit 1

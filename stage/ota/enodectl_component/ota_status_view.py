@@ -33,7 +33,7 @@ def screen():
     return OTAInstallScreen('OTA installation', [
         Field('bundle', 'Local OTA bundle path (blank uses latest signed release)'),
         Field('skip_signature_verification', 'Skip signature verification for this install', 'bool'),
-        Field('confirmation', 'Recovery only: type ' + backend.CONFIRMATION),
+        Field('confirmation', f'Recovery only: type exactly `{backend.CONFIRMATION}` (without backticks)'),
         Field('retry_failed', 'Retry after a previously failed trial', 'bool'),
     ], backend.load, backend.save, ota_status.details,
         help_text='Signature verification defaults to ON. Bypass requires a local plain rootfs-only bundle and the exact phrase. It does not authenticate the image. Device/size/checksum/readback and A/B trial checks remain active. This screen never reboots automatically.')

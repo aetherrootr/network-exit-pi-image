@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import network_config
 
 try:
-    if os.geteuid() != 0: raise ValueError('Run through enodectl or systemd')
+    if os.geteuid() != 0: raise ValueError('Run through `enodectl` or systemd')
     if len(sys.argv) != 2 or sys.argv[1] not in ('restore', 'sync', 'sync-wg', 'rollback'):
         raise ValueError('Private network backend: restore | sync | sync-wg | rollback')
     if sys.argv[1] == 'restore': network_config.restore()

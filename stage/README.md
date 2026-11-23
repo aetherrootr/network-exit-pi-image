@@ -130,6 +130,13 @@ for explicitly confirmed local signature-bypass recovery. Required system
 components retain their non-disable policy; the OTA page exposes an update
 action while other fixed policy pages remain read-only.
 
+Use ASCII backticks to mark exact input phrases, literal field values, command
+suggestions and key names in user-facing prompts. Typed confirmations must show
+the complete phrase and say to omit the backticks. Keep the accepted input
+unchanged; display delimiters are never part of a confirmation value. Use literal
+text rendering in the TUI, and quote shell messages so backticks cannot execute
+command substitutions.
+
 Loading a form must be read-only and reuse existing device identities. Sensitive
 fields load blank, with documented blank-to-retain behavior. Writes need an
 explicit confirmation and run in workers rather than blocking the UI. Network
