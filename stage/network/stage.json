@@ -9,9 +9,17 @@
   ],
   "packages": [
     "nftables",
-    "iptables"
+    "iptables",
+    "netplan.io",
+    "wpasupplicant",
+    "iw",
+    "systemd-resolved"
   ],
   "before_services": "network_setup:apply_selection",
+  "systemd_units": [
+    "network-exit-uplink-refresh.service",
+    "network-exit-uplink-refresh.timer"
+  ],
   "private": {
     "network-runtime": {
       "module": "network_runtime",
@@ -28,7 +36,7 @@
   ],
   "service": {
     "name": "network",
-    "label": "Network / firewall",
+    "label": "Network / Wi-Fi / firewall",
     "units": [
       "network-exit-network.service"
     ],

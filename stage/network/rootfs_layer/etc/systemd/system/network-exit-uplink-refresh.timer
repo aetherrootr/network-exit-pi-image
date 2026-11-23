@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh exit policy after uplink route changes
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=15s
+AccuracySec=2s
+Unit=network-exit-uplink-refresh.service
+
+[Install]
+WantedBy=timers.target

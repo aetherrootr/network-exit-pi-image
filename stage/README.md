@@ -147,3 +147,5 @@ and included in shiv; the device never installs them at first boot.
 Run `python3 -m image_builder.check_stages` to validate sources, `bash build.sh
 --list-stages` to inspect order, and `python3 -m image_builder.stage_catalog assets` to
 inspect file ownership. Full image and physical-board validation remain required.
+
+The network stage owns wired DHCP/link-local/mDNS defaults and the Wi-Fi form/backend. Its initramfs init-bottom script runs after system-state's STATE bind mounts, prepares private Wi-Fi files and restores unconfirmed changes before the Netplan generator. Wi-Fi credentials are STATE-backed; Ethernet defaults remain versioned in the image. The shared 90-second network journal commits or rolls back Wi-Fi and firewall settings together. Tests run the real Netplan generator only under disposable roots and never apply configuration to the builder's network.

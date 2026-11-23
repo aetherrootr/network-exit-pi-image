@@ -15,6 +15,7 @@ import network_config as network
 import network_management
 import bootstate
 import trial
+UPLINK = network.uplink
 
 
 class NetworkPolicyTests(unittest.TestCase):
@@ -31,10 +32,43 @@ class NetworkPolicyTests(unittest.TestCase):
         stack.enter_context(patch.object(network.os, 'geteuid', return_value=0))
         stack.enter_context(patch.object(network.os.path, 'ismount', return_value=True))
         self.device = stack.enter_context(patch.object(network, 'uplink', return_value='end0'))
+        stack.enter_context(patch.object(network.connectivity, 'management_interfaces', return_value=['end0']))
         self.command = stack.enter_context(patch.object(network.subprocess, 'run',
             return_value=subprocess.CompletedProcess([], 1, stdout='')))
 
     def settings(self, **kwargs): return {**network.DEFAULT, **kwargs}
+
+    def test_management_ssh_dhcp_and_mdns_remain_available_on_wired_and_wifi(self):
+        rules = network.host_rules(self.settings(firewall=True), 'wlan0', {}, ['end0', 'wlan0'])
+        for link in ('end0', 'wlan0'):
+            self.assertIn(f'iifname "{link}" ip saddr 169.254.0.0/16 tcp dport 22 accept', rules)
+            self.assertIn(f'iifname "{link}" udp sport 67 udp dport 68 accept', rules)
+            self.assertIn(f'iifname "{link}" ip ttl 255 udp dport 5353 accept', rules)
+        self.assertIn('host-forward-deny', rules)
+
+    def test_auto_uplink_follows_live_route_before_old_wireguard_hint(self):
+        (self.config / 'rules.nft').write_text('iifname "wg-home" oifname "end0" accept\n')
+        with patch.object(network.subprocess, 'check_output', side_effect=[
+            json.dumps([{'dev': 'wlan0', 'metric': 600}]), json.dumps([{'ifname': 'wlan0'}])]):
+            self.assertEqual(UPLINK(self.settings()), 'wlan0')
+        with patch.object(network.subprocess, 'check_output', side_effect=[
+            json.dumps([{'dev': 'wlan0', 'metric': 600}, {'dev': 'end0', 'metric': 100}]),
+            json.dumps([{'ifname': 'end0'}])]):
+            self.assertEqual(UPLINK(self.settings()), 'end0')
+
+    def test_route_refresh_runs_only_after_an_actual_uplink_change_and_outside_trials(self):
+        components.save(self.config / 'network.json', json.dumps(self.settings(firewall=True)))
+        components.save(self.config / 'active-uplink', 'end0\n')
+        with patch.object(network, 'apply') as apply:
+            network.refresh_uplink()
+            apply.assert_not_called()
+            self.device.return_value = 'wlan0'
+            network.refresh_uplink()
+            apply.assert_called_once()
+            apply.reset_mock()
+            (self.state / 'network-pending.json').write_text('{}')
+            network.refresh_uplink()
+            apply.assert_not_called()
 
     def test_rejects_injection_invalid_networks_and_unrestricted_ssh_port(self):
         for updates in [dict(uplink='end0;reboot'), dict(uplink='tailscale0'), dict(ssh_sources=[]),

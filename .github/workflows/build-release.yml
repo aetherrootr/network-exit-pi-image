@@ -48,7 +48,7 @@ jobs:
       - name: Install builder dependencies
         run: |
           sudo apt-get update
-          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv ddclient xz-utils util-linux fdisk e2fsprogs python3 curl coreutils nftables iproute2 u-boot-tools rauc openssl openssh-client openssh-server sudo squashfs-tools cloud-guest-utils
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y netplan.io python3-venv ddclient xz-utils util-linux fdisk e2fsprogs python3 curl coreutils nftables iproute2 u-boot-tools rauc openssl openssh-client openssh-server sudo squashfs-tools cloud-guest-utils
           sudo install -d -m 0755 /run/sshd
       - name: Prepare isolated controller packager
         run: |
@@ -56,7 +56,7 @@ jobs:
           "${{ runner.temp }}/enodectl-tools/bin/python" -m pip install --no-cache-dir -r stage/enodectl/build-requirements.txt -r stage/enodectl/requirements.txt
       - name: Validate sources
         run: |
-          sudo env NETWORK_EXIT_SHIV_TESTS=required ENODECTL_TEST_SHIV_PYTHON="${{ runner.temp }}/enodectl-tools/bin/python" NETWORK_EXIT_DDNS_TESTS=required NETWORK_EXIT_SSH_CA_TESTS=required NETWORK_EXIT_OVERLAY_TESTS=required NETWORK_EXIT_NETWORK_TESTS=required NETWORK_EXIT_OTA_TESTS=required NETWORK_EXIT_GROW_TESTS=required python3 -m unittest discover -s tests -v
+          sudo env NETWORK_EXIT_NETPLAN_TESTS=required NETWORK_EXIT_SHIV_TESTS=required ENODECTL_TEST_SHIV_PYTHON="${{ runner.temp }}/enodectl-tools/bin/python" NETWORK_EXIT_DDNS_TESTS=required NETWORK_EXIT_SSH_CA_TESTS=required NETWORK_EXIT_OVERLAY_TESTS=required NETWORK_EXIT_NETWORK_TESTS=required NETWORK_EXIT_OTA_TESTS=required NETWORK_EXIT_GROW_TESTS=required python3 -m unittest discover -s tests -v
           for script in build.sh image_builder/*.sh stage/*/install.sh stage/common.sh release/burn.sh; do
             bash -n "$script"
           done
