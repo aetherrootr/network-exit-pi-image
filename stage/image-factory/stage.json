@@ -1,8 +1,8 @@
 {
   "id": "image-factory",
   "context": "host-shell",
-  "title": "Assemble factory image",
-  "description": "Create A/B slots, control records and STATE",
+  "title": "Prepare factory components",
+  "description": "Prepare boot prefix, shared rootfs mapping, control records and STATE",
   "requires": [
     "image-finalize"
   ]

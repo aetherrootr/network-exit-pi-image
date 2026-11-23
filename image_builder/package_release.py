@@ -3,13 +3,22 @@
 import argparse
 import hashlib
 import json
-import lzma
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
+
+from release.lib import factory
+
+ASSET_LIMIT = 2 * 1024 ** 3  # GitHub Release assets must be strictly below 2 GiB.
+
+
+def validate_asset_size(path, limit=ASSET_LIMIT):
+    size = Path(path).stat().st_size
+    if size >= limit:
+        raise ValueError(f'Release asset {Path(path).name} is {size} bytes; must be smaller than {limit} bytes')
 
 
 def digest(path):
@@ -31,12 +40,12 @@ def package(root, version, certificate=None, key=None, factory_only=False):
         raise ValueError('Both OTA signing certificate and private key are required')
     if not factory_only and digest(certificate) != built.get('ota_certificate_sha256'):
         raise ValueError('Signing certificate differs from the trust certificate built into this image')
-    image = root / 'output/NetworkExit_Orangepizero3_trixie_arm64.img.xz'
-    raw_digest, raw_bytes = hashlib.sha256(), 0
-    with lzma.open(image, 'rb') as stream:
-        while chunk := stream.read(4 * 1024 * 1024):
-            raw_digest.update(chunk)
-            raw_bytes += len(chunk)
+    components = root / 'output/factory'
+    manifest = json.loads((components / 'layout.json').read_text())
+    factory.verify(components, manifest)
+    # Factory and OTA must contain exactly the same built root payload.
+    if not factory_only and digest(root / 'output/rootfs.img') != manifest['payloads']['rootfs']['raw_sha256']:
+        raise ValueError('Factory and OTA rootfs payloads differ')
     name = f'network-exit-factory-{version}-orangepizero3'
     staging = root / 'output/bundle' / name
     if staging.exists(): raise ValueError('Factory package staging directory already exists')
@@ -45,19 +54,19 @@ def package(root, version, certificate=None, key=None, factory_only=False):
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     shutil.copy2(root / 'stage/system-access/enodectl_component/sshpub.py', staging / 'lib/sshpub.py')
     (staging / 'burn.sh').chmod(0o755)
-    for src in [image, root / 'README.md', root / 'LICENSE', root / 'output/package-manifest.tsv',
+    shutil.copytree(components / 'payload', staging / 'payload')
+    for src in [root / 'README.md', root / 'LICENSE', root / 'output/package-manifest.tsv',
                 root / 'output/enodectl-manifest.json',
                 root / 'output/source-image.sha256', root / 'output/build.json']:
         shutil.copy2(src, staging / src.name)
-    manifest = {'format': 1, 'kind': 'factory', 'version': version, 'board': 'orangepizero3',
-                'arch': 'arm64', 'layout': 'ab-v2', 'image': image.name, 'sha256': digest(image),
-                'image_bytes': raw_bytes, 'image_sha256': raw_digest.hexdigest()}
+    manifest['version'] = version
     (staging / 'release.json').write_text(json.dumps(manifest, indent=2) + '\n')
     checksums = [f'{digest(path)}  {path.relative_to(staging)}\n'
                  for path in sorted(staging.rglob('*')) if path.is_file()]
     (staging / 'SHA256SUMS').write_text(''.join(checksums))
     archive = root / 'output' / f'{name}.tar.gz'
     with tarfile.open(archive, 'w:gz', compresslevel=1) as stream: stream.add(staging, arcname=name)
+    validate_asset_size(archive)
     checksum_file(archive)
     products = [archive]
     if not factory_only:
@@ -75,6 +84,7 @@ def package(root, version, certificate=None, key=None, factory_only=False):
             subprocess.run(['rauc', 'bundle', '--mksquashfs-args=-processors 2', f'--cert={Path(certificate).resolve()}',
                             f'--key={Path(key).resolve()}', str(inputs), str(ota)], check=True)
         subprocess.run(['rauc', 'info', f'--keyring={Path(certificate).resolve()}', str(ota)], check=True)
+        validate_asset_size(ota)
         checksum_file(ota)
         products.append(ota)
     return products
@@ -89,7 +99,7 @@ def main():
     args = parser.parse_args()
     try:
         for product in package(Path(__file__).resolve().parents[1], args.version, args.certificate, args.key, args.factory_only):
-            print(product)
+            print(f'{product} ({product.stat().st_size} bytes)')
     except (ValueError, OSError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f'Packaging failed: {exc}\n')
 

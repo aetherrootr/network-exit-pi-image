@@ -1,6 +1,7 @@
 from _stage_support import source_path, source_library, assemble_layers
 import importlib.util
 import json
+import lzma
 from pathlib import Path
 import shutil
 import struct
@@ -16,6 +17,39 @@ spec.loader.exec_module(factory)
 
 @unittest.skipUnless(shutil.which('sfdisk') and shutil.which('mkfs.ext4'), 'Factory tools are not installed')
 class FactoryLayoutTests(unittest.TestCase):
+    def test_real_component_build_stores_rootfs_once_and_preserves_boot_and_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prefix = bytearray(4 * 1024 * 1024)
+            prefix[8192:8209] = b'BOOTLOADER-BYTES!'
+            prefix[440:444] = struct.pack('<I', 0x1234abcd)
+            prefix[510:512] = b'\x55\xaa'
+            (root / 'base').write_bytes(prefix)
+            payload = b'system-slot'.ljust(1024 * 1024, b'\0')
+            (root / 'rootfs.img').write_bytes(payload)
+            directory = root / 'components'
+            factory.prepare_components(root / 'base', root / 'rootfs.img', directory, state_mib=8)
+            originals = {name: (directory / f'{name}.img').read_bytes()
+                         for name in ('boot-prefix', 'boot-control', 'state')}
+            manifest = factory.compress_components(directory, root / 'rootfs.img')
+            self.assertEqual(len(list((directory / 'payload').iterdir())), 4)
+            self.assertEqual(set(p.name for p in directory.iterdir()), {'payload', 'layout.json'})
+            self.assertEqual(lzma.decompress((directory / 'payload/rootfs.img.xz').read_bytes()), payload)
+            revised = lzma.decompress((directory / 'payload/boot-prefix.img.xz').read_bytes())
+            self.assertEqual(revised[:446], prefix[:446])
+            self.assertEqual(revised[510:], prefix[510:])
+            self.assertEqual([w['offset'] for w in manifest['writes']],
+                             [0, 4*1024*1024, 5*1024*1024, 6*1024*1024, 7*1024*1024])
+            control = originals['boot-control']
+            for bank in (0, 1):
+                offset = bank * factory.bootstate.STRIDE
+                self.assertEqual(factory.bootstate.decode(control[offset:offset+factory.bootstate.SIZE]), factory.bootstate.initial())
+            for name, raw in originals.items():
+                self.assertEqual(lzma.decompress((directory / f'payload/{name}.img.xz').read_bytes()), raw)
+            state = root / 'state.ext4'
+            state.write_bytes(originals['state'])
+            subprocess.run(['e2fsck', '-fn', str(state)], check=True, capture_output=True)
+
     def test_real_partition_table_preserves_bootloader_and_seeds_both_slots(self):
         # Only regular temporary files; no loop device, mount or SD card is used.
         with tempfile.TemporaryDirectory() as tmp:

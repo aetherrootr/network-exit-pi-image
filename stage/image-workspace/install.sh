@@ -9,5 +9,5 @@ build_stage() {
 mkdir -p "$project/output"
 [[ ! -e $final ]] || { echo "Output already exists; move it before building: $final" >&2; exit 1; }
 echo "Working directory: $build_dir"
-echo "Final image: $final"
+echo "Final factory components: $final"
 }

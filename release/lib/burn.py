@@ -17,6 +17,10 @@ import tempfile
 
 CHUNK = 4 * 1024 * 1024
 
+_spec = importlib.util.spec_from_file_location('factory_transport', Path(__file__).with_name('factory.py'))
+factory = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(factory)
+
 
 def read_ssh_keys(path):
     for command in ['ssh-keygen', 'losetup', 'debugfs', 'e2fsck']:
@@ -94,6 +98,11 @@ def provision_ssh_key(device, manifest, keys):
 
 def read_manifest(directory):
     manifest = json.loads((directory / 'release.json').read_text())
+    if not isinstance(manifest, dict):
+        raise ValueError('Invalid release.json')
+    if manifest.get('format') == 2:
+        factory.validate(directory, manifest)
+        return manifest, directory
     name = manifest['image']
     if manifest.get('format') != 1 or Path(name).name != name or not name.endswith('.img.xz'):
         raise ValueError('Invalid release.json')
@@ -106,6 +115,10 @@ def read_manifest(directory):
 
 
 def verify_image(image, manifest):
+    if manifest.get('format') == 2:
+        print('Verifying shared factory payloads and partition map...', flush=True)
+        factory.verify(image, manifest)
+        return
     print('Verifying compressed image and decompressed data...', flush=True)
     with image.open('rb') as stream:
         if hashlib.file_digest(stream, 'sha256').hexdigest() != manifest['sha256']:
@@ -155,6 +168,8 @@ def inspect_device(device, needed):
 
 
 def write_image(image, device, manifest):
+    if manifest.get('format') == 2:
+        return write_components(image, device, manifest)
     # O_EXCL on a block device fails if it is in use (e.g. a mounted partition).
     descriptor = os.open(device, os.O_WRONLY | os.O_EXCL | os.O_NOFOLLOW)
     try:
@@ -196,6 +211,56 @@ def write_image(image, device, manifest):
         raise ValueError('SD card readback verification failed; check the card reader and card')
 
 
+def write_components(directory, device, manifest):
+    writes = factory.validate(directory, manifest)
+    # Keep an exclusive descriptor through both writing and readback. Each map
+    # entry is contiguous; no sparse holes or stale bytes are skipped on a card.
+    descriptor = os.open(device, os.O_RDWR | os.O_EXCL | os.O_NOFOLLOW)
+    try:
+        total, last_report = 0, 0
+        for write in writes:
+            item = manifest['payloads'][write['payload']]
+            print(f'Writing {write["payload"]} at byte {write["offset"]}...', flush=True)
+            os.lseek(descriptor, write['offset'], os.SEEK_SET)
+            count = 0
+            for chunk in factory.chunks(directory, item):
+                # Bind the on-card partition records to the checked write map,
+                # including when package contents changed after preflight.
+                if write['payload'] == 'boot-prefix' and count == 0:
+                    factory.verify_mbr(chunk, manifest)
+                view = memoryview(chunk)
+                while view:
+                    amount = os.write(descriptor, view)
+                    if amount <= 0:
+                        raise OSError('Device write failed')
+                    view = view[amount:]
+                count += len(chunk)
+                if time.monotonic() - last_report >= 1:
+                    position = write['offset'] + count
+                    print(f'\rWritten {position / 1048576:.0f} / {manifest["image_bytes"] / 1048576:.0f} MiB', end='', flush=True)
+                    last_report = time.monotonic()
+            print()
+            total += count
+        if total != manifest['image_bytes']:
+            raise ValueError('Factory write map did not cover the complete image')
+        os.fsync(descriptor)
+        print('Reading back every factory region, including both root slots...', flush=True)
+        for write in writes:
+            item = manifest['payloads'][write['payload']]
+            os.lseek(descriptor, write['offset'], os.SEEK_SET)
+            digest, remaining = hashlib.sha256(), item['bytes']
+            while remaining:
+                chunk = os.read(descriptor, min(CHUNK, remaining))
+                if not chunk:
+                    raise OSError('Device readback ended unexpectedly')
+                digest.update(chunk)
+                remaining -= len(chunk)
+            if digest.hexdigest() != item['raw_sha256']:
+                raise ValueError(f'SD card readback verification failed for {write["payload"]} at {write["offset"]}')
+    finally:
+        os.close(descriptor)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Write a fully preinstalled image to an SD card (Linux)')
     parser.add_argument('device', nargs='?', help='Whole-card device, such as /dev/sdb or /dev/mmcblk0')
@@ -211,7 +276,7 @@ def main():
             print('Release package verification passed.')
             return
         if sys.platform != 'linux':
-            raise ValueError('This writer supports Linux; use an img.xz-compatible writer on other platforms')
+            raise ValueError('This factory writer requires Linux')
         if not args.device:
             parser.error('Specify a whole-card device path, or use --verify-only')
         key_path = str(Path(args.ssh_key).resolve(strict=True)) if args.ssh_key else None

@@ -1,8 +1,8 @@
 {
   "id": "image-compress",
   "context": "host-shell",
-  "title": "Compress factory image",
-  "description": "Compress and validate the private factory payload",
+  "title": "Compress factory components",
+  "description": "Compress one rootfs for both slots and verify every component and write map",
   "requires": [
     "image-factory"
   ]
