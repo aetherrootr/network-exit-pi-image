@@ -71,7 +71,8 @@ burn.subprocess.run = lambda *args, **kwargs: None
 sys.argv = ['burn.py', '/dev/null']
 burn.main()
 """
-        for answer, accepted in [(b'ERASE /dev/null\n', True), (b'/dev/null\n', False),
+        for answer, accepted in [(b'ERASE /dev/null\n', True), (b'ERASE\n', False),
+                                 (b'`ERASE /dev/null`\n', False), (b'/dev/null\n', False),
                                  (b'ERASE /dev/other\n', False), (b'\x04', False)]:
             with self.subTest(answer=answer):
                 master, slave = pty.openpty()
@@ -96,7 +97,7 @@ burn.main()
                             if not chunk: break
                             prompt += chunk
                         if process.poll() is not None: break
-                    self.assertIn(b'Type ERASE /dev/null to confirm: ', prompt)
+                    self.assertIn(b'Type exactly `ERASE /dev/null` (without backticks) to confirm: ', prompt)
                     os.write(master, answer)
                     output, _ = process.communicate(timeout=5)
                     self.assertEqual(process.returncode, 0 if accepted else 1, output.decode())

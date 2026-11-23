@@ -301,7 +301,8 @@ def main():
             os.execvp('sudo', command)
         with open('/dev/tty', 'r', encoding='utf-8') as tty_input, \
                 open('/dev/tty', 'w', encoding='utf-8') as tty_output:
-            tty_output.write(f'All data on this card will be overwritten. Type ERASE {device} to confirm: ')
+            tty_output.write('All data on this card will be overwritten.\n'
+                             f'Type exactly `ERASE {device}` (without backticks) to confirm: ')
             tty_output.flush()
             if tty_input.readline().strip() != f'ERASE {device}':
                 raise ValueError('Cancelled. Nothing was written')
