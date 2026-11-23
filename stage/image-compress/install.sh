@@ -6,7 +6,6 @@
 }
 # Sourced by the build runner; shared variables describe the working image.
 build_stage() {
-# Keep the compressed image private to this build until all manifests are ready.
-xz -T2 -3 -c "$factory" > "$compressed_image"
-xz -t "$compressed_image"
+# Store one compressed rootfs, mapped to both independent system partitions.
+python3 -m image_builder.assemble_factory --compress "$factory" --rootfs "$slot_image"
 }

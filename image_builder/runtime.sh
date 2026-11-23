@@ -94,10 +94,9 @@ initialize_build() {
   mkdir -p "$build_dir/logs"
   rootfs=$build_dir/root
   image=$build_dir/custom.img
-  factory=$build_dir/factory.img
+  factory=$build_dir/factory
   slot_image=$build_dir/rootfs.img
-  final=$project/output/NetworkExit_Orangepizero3_trixie_arm64.img.xz
-  compressed_image=$build_dir/${final##*/}
+  final=$project/output/factory
   loop=''
   part=''
   resolver_saved=0 policy_saved=0 policy_written=0 qemu_added=0

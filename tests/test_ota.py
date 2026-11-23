@@ -2,13 +2,13 @@ from _stage_support import source_path, source_library, assemble_layers
 import hashlib
 import importlib.util
 import json
-import lzma
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from _factory_support import component_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('packager', ROOT / 'image_builder/package_release.py')
@@ -30,8 +30,8 @@ class SignedBundleTests(unittest.TestCase):
             (root/helper).parent.mkdir(parents=True)
             shutil.copy2(ROOT/helper, root/helper)
             for name in ['README.md','LICENSE']: shutil.copy2(ROOT/name,root/name)
-            raw = b'root-slot-fixture\0'*4096
-            (root/'output/NetworkExit_Orangepizero3_trixie_arm64.img.xz').write_bytes(lzma.compress(raw))
+            raw = b'root-slot-fixture\0'.ljust(1024 * 1024, b'\0')
+            component_fixture(root / 'output', raw)
             (root/'output/rootfs.img').write_bytes(raw)
             for name in ['package-manifest.tsv','source-image.sha256','enodectl-manifest.json']: (root/'output'/name).write_text('fixture\n')
             for identity in ['signer','untrusted']:

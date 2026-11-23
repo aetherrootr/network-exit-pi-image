@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
+from _factory_support import component_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('burn', ROOT / 'release/lib/burn.py')
@@ -132,8 +133,7 @@ class ReleasePackageTests(unittest.TestCase):
                 shutil.copytree(ROOT / folder, project / folder, ignore=shutil.ignore_patterns('__pycache__'))
             shutil.copy2(ROOT/'package-release.py',project/'package-release.py')
             (project / 'output').mkdir()
-            raw = b'Armbian fixture\0' * 4096
-            (project / 'output/NetworkExit_Orangepizero3_trixie_arm64.img.xz').write_bytes(lzma.compress(raw))
+            _, expected, raw = component_fixture(project / 'output')
             (project / 'README.md').write_text('Fixture instructions\n')
             (project / 'output/build.json').write_text(json.dumps({'version':'v0-test', 'layout':'ab-v2'}))
             shutil.copy2(ROOT / 'LICENSE', project / 'LICENSE')
@@ -149,6 +149,18 @@ class ReleasePackageTests(unittest.TestCase):
             subprocess.run([str(bundle / 'burn.sh'), '--verify-only'], check=True, capture_output=True)
             subprocess.run(['sha256sum', '-c', 'SHA256SUMS'], cwd=bundle, check=True, capture_output=True)
             data = json.loads((bundle / 'release.json').read_text())
-            self.assertEqual(data['image_bytes'], len(raw))
+            self.assertEqual(data['format'], 2)
+            self.assertEqual(data['image_bytes'], expected['image_bytes'])
+            self.assertEqual(len(list((bundle / 'payload').glob('*rootfs*'))), 1)
+            # Exercise the actual writer on a disposable prefilled regular file.
+            # Its CLI continues to reject regular files and never sees a card.
+            target = project / 'card-fixture'
+            target.write_bytes(b'\xa5' * (expected['image_bytes'] + 512))
+            burn.write_image(bundle, str(target), data)
+            with target.open('rb') as stream:
+                for write in data['writes']:
+                    self.assertEqual(stream.tell(), write['offset'])
+                    self.assertEqual(stream.read(len(raw[write['payload']])), raw[write['payload']])
+                self.assertEqual(stream.read(), b'\xa5' * 512)
             with archive.open('rb') as stream:
                 self.assertTrue(archive.with_suffix('.gz.sha256').read_text().startswith(hashlib.file_digest(stream, 'sha256').hexdigest()))

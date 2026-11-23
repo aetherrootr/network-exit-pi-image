@@ -202,8 +202,8 @@
   "tui_logic_separation": "Per-stage *_view.py/ssh_view.py/service_tui.py presentation; *_config.py/ssh_editor.py/service_manager.py backends; shared Textual form/confirmation/status widgets in enodectl_core/textual_ui.py",
   "textual_host_interactions_tested": true,
   "textual_arm64_runtime_tested": false,
-  "local_test_count": 166,
-  "local_tests_skipped": 0,
+  "local_test_count": 175,
+  "local_tests_skipped": 4,
   "build_stage_contexts": {
     "host-shell": "Shared build_stage function for image resources and cleanup state",
     "host": "Separate builder process with image context",
@@ -273,5 +273,22 @@
     "artifact_id": 14771165284,
     "release_published": false,
     "hardware_tested": false
+  },
+  "factory_transport": {
+    "format": 2,
+    "payloads": [
+      "boot-prefix",
+      "rootfs",
+      "boot-control",
+      "state"
+    ],
+    "rootfs_copies_in_package": 1,
+    "rootfs_copies_on_card": 2,
+    "layout": "ab-v2",
+    "ota_format_changed": false,
+    "release_asset_limit_bytes_exclusive": 2147483648,
+    "validation": "Component preparation/compression, actual archive extraction, CLI verification and regular-file A/B reconstruction passed locally; malformed maps, payload corruption, short writes, B readback corruption and changed source rejection covered. Full ARM64 component build pending.",
+    "hardware_tested": false,
+    "local_validation": "175 tests run: 171 passed, 4 skipped because ddclient, RAUC/squashfs recovery and growpart tools are unavailable on this host. CI installs and requires those integration tools."
   }
 }

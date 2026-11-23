@@ -192,10 +192,10 @@ The GitHub Actions image build produces two separate products:
 
 | Product | Purpose |
 | --- | --- |
-| `network-exit-factory-VERSION-orangepizero3.tar.gz` | Initialize/reflash a whole SD card; includes image, writer, manifest and checksums |
+| `network-exit-factory-VERSION-orangepizero3.tar.gz` | Initialize/reflash a whole SD card; includes shared-rootfs components, writer, manifest and checksums |
 | `network-exit-ota-VERSION-orangepizero3.raucb` | Signed root-slot update for an already initialized compatible A/B device |
 
-The card must be at least as large as the decompressed factory image (currently about 10 GiB); the writer checks the exact byte count recorded in its manifest. **16 GB or larger** is recommended. Card capacity is detected rather than fixed to a particular model or size. Extract the factory archive, enter its directory and run on Linux with Python 3.11+:
+The card must hold the reconstructed factory layout (currently about 10 GiB); the writer checks the exact byte count recorded in its manifest. **16 GB or larger** is recommended. Card capacity is detected rather than fixed to a particular model or size. Extract the factory archive, enter its directory and run on Linux with Python 3.11+:
 
 ```bash
 ./burn.sh --verify-only
@@ -203,6 +203,10 @@ The card must be at least as large as the decompressed factory image (currently 
 ```
 
 Use the whole-card path. The writer checks image integrity, device type, capacity, read-only and mounted status; requests sudo; requires typing the device path; writes and reads back the image. All existing card data is overwritten. `--dry-run` inspects the proposed operation without writing.
+
+Factory transport format 2 stores exactly four XZ-compressed payloads under `payload/`: `boot-prefix.img.xz`, `rootfs.img.xz`, `boot-control.img.xz` and `state.img.xz`. `release.json` maps the single rootfs payload to both independent on-card system slots. It records compressed and raw SHA256 values, exact decompressed sizes and a contiguous write map covering the complete minimum image. The writer checks this map against the actual MBR, verifies every payload before erasure, streams all regions including zero bytes to the card, then independently reads back A, B and every other region before provisioning SSH keys. Payload paths, overlaps, gaps, unsupported layouts and symlinks are rejected. No full raw disk image, mount, target-side download or formatting is needed for ordinary flashing. Use the included Linux writer; generic `.img.xz` flashing tools cannot consume this component package. The writer retains support for legacy format-1 whole-image manifests.
+
+Both factory and OTA products originate from the same built `output/rootfs.img`; packaging checks their rootfs hashes match. Each product contains its own complete offline payload. OTA remains a signed RAUC bundle and requires no device-side format change. Packaging rejects either release asset at or above GitHub's 2 GiB per-file limit before uploading artifacts or creating a Release draft, and logs each final product size.
 
 `--ssh-key FILE` optionally personalizes only the freshly written STATE filesystem with validated public keys for `pi`. The Linux writer then also needs `ssh-keygen`, `losetup`, `debugfs` and `e2fsck`; no host filesystem is mounted. Factory image readback is completed before personalization, then the key contents, ownership, permissions and ext4 consistency are checked. The personalized card intentionally differs from the generic image checksum in STATE. Keys are not embedded in public factory releases or fetched automatically by the device. No real card write is performed by source tests.
 
@@ -386,7 +390,7 @@ image_builder/
   runtime.sh                # Dispatch, journal and resource cleanup
   stage_catalog.py          # Dependency, component and layer validation
   fetch_base.py             # Fresh base-image download
-  assemble_factory.py       # Raw A/B disk assembly
+  assemble_factory.py       # Shared-rootfs components and optional raw A/B assembly
   package_enodectl.py       # shiv assembly
   package_release.py        # Factory archive and signed OTA packaging
   check_stages.py           # Static source/config validation
@@ -467,13 +471,13 @@ The installed `/usr/local/sbin/enodectl` launcher invokes `/usr/lib/enodectl/eno
 
 `output/enodectl-manifest.json`, also included in the factory archive, records selected stages, layer ownership, the shiv version and bundled Python dependency versions. It complements the APT package manifest. The same manifest is installed beside the application. `enodectl status` reports the selected stage IDs.
 
-Progress shows the current stage and completion time. Each invocation retains `work/build.XXXXXXXX/logs/<stage>.log` and a `stages.tsv` journal with running/completed/failed events, elapsed seconds and exit codes. Actions saves these files as the `build-stage-logs` artifact even when the build fails. A failure stops subsequent stages and triggers common restoration, unmount and loop-detach cleanup. Cleanup errors make the build fail and report resources requiring inspection. Only the final stage moves completed image files into `output/`, with the compressed factory filename moved last.
+Progress shows the current stage and completion time. Each invocation retains `work/build.XXXXXXXX/logs/<stage>.log` and a `stages.tsv` journal with running/completed/failed events, elapsed seconds and exit codes. Actions saves these files as the `build-stage-logs` artifact even when the build fails. A failure stops subsequent stages and triggers common restoration, unmount and loop-detach cleanup. Cleanup errors make the build fail and report resources requiring inspection. Only the final stage moves completed files into `output/`, publishing the verified `output/factory/` component directory last.
 
 Stages share a mounted working image and must run in order. Skipping stages and resuming a failed workspace are not supported. Review the failed log, resolve the cause and start a new build; retained directories are diagnostic copies. Do not delete a workspace until any reported mounts and loop devices have been released. Chroot stages must be invoked through the runner, which supplies their target context.
 
 For offline base-image inspection, pass the already downloaded `.img.xz` directly to `build.sh`; software package installation still requires builder network access. Each Actions build downloads a fresh SHA256-verified base into runner temporary storage. It does not reuse a project or Actions cache. Software is fetched from official signed APT repositories, and installed packages receive available build-time upgrades. Running appliances do not execute unattended APT upgrades. Versions are recorded in `output/package-manifest.tsv`; builds at different times are not byte-reproducible.
 
-`stage/image-inputs/config/base-image.json` pins the inspected Armbian community nightly: Debian 13 Trixie ARM64, Orange Pi Zero 3, kernel `6.18.64-current-sunxi64`. Changing this base requires reviewing its SHA256, bootloader commands, kernel options, DTB and partition layout. Builds retain `work/build.*` for inspection and refuse to overwrite an existing final image. The factory image is about 10 GiB before compression, so allow substantial runner disk space for working copies and both products.
+`stage/image-inputs/config/base-image.json` pins the inspected Armbian community nightly: Debian 13 Trixie ARM64, Orange Pi Zero 3, kernel `6.18.64-current-sunxi64`. Changing this base requires reviewing its SHA256, bootloader commands, kernel options, DTB and partition layout. Builds retain `work/build.*` for inspection and refuse to overwrite an existing final component directory. The factory layout expands to about 10 GiB on the card; the default builder compresses its rootfs only once and avoids assembling a duplicate-rootfs raw disk file. Allow substantial runner disk space for working copies and both products.
 
 ## Verification and remaining acceptance work
 

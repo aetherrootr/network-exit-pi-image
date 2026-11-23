@@ -155,6 +155,18 @@ jobs:
           BUILD_SHA: ${{ needs.build.outputs.source_sha }}
         run: |
           set -euo pipefail
+          # Validate all downloaded assets before creating or changing a draft.
+          python3 - <<'ASSET_SIZES'
+          from pathlib import Path
+          files = sorted(Path('dist').iterdir())
+          if not files:
+              raise SystemExit('No release assets were downloaded')
+          for path in files:
+              size = path.stat().st_size
+              print(f'{path.name}: {size} bytes', flush=True)
+              if not path.is_file() or size >= 2 * 1024 ** 3:
+                  raise SystemExit(f'Release asset must be a regular file smaller than 2 GiB: {path.name}')
+          ASSET_SIZES
           # Existing tags (including annotated tags) must resolve to the built commit.
           if gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > tag-state.json 2> tag-error.txt; then
             tag_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
@@ -171,6 +183,8 @@ jobs:
           else
             cat > release-notes.md <<'NOTES'
           Fully preinstalled Orange Pi Zero 3 / Debian 13 ARM64 image.
+
+          The factory package stores one rootfs payload. Its included writer streams it into both independent A/B slots and verifies every written region. Use the included Linux writer rather than a generic raw-image flashing tool. OTA remains a separately signed RAUC bundle.
 
           For initial provisioning, download network-exit-factory-*.tar.gz, extract it, enter its directory, and run on Linux:
 
