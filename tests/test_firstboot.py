@@ -133,6 +133,8 @@ class FirstBootTests(unittest.TestCase):
                 patch.object(self.console.subprocess, 'run', side_effect=configure):
             self.assertEqual(self.console.main(), 0)
             self.assertEqual(enter.call_count, 2)
+            for call in enter.call_args_list:
+                self.assertIn('Press `Enter` to begin setup', call.args[0])
             self.assertEqual(calls, [['/usr/local/sbin/enodectl', 'config', '--first-boot']] * 2)
 
     def test_controller_routes_automatic_setup_and_unified_services(self):

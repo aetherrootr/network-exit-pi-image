@@ -40,11 +40,11 @@ def validate(profile):
         if profile['hostname'] != zone and not profile['hostname'].endswith('.' + zone):
             raise ValueError('The hostname must belong to the Cloudflare zone')
     if profile['provider'] == 'duckdns' and not profile['hostname'].endswith('.duckdns.org'):
-        raise ValueError('Use the complete hostname ending in .duckdns.org')
+        raise ValueError('Use the complete hostname ending in `.duckdns.org`')
     if profile['provider'] == 'dyndns2':
         hostname(profile['server'])
         if not re.fullmatch(r'[A-Za-z0-9@._+:-]+', profile['login']):
-            raise ValueError('Use a DynDNS2 login containing letters, digits or @ . _ + : -')
+            raise ValueError('Use a DynDNS2 login containing letters, digits or `@`, `.`, `_`, `+`, `:`, `-`')
     return dict(profile)
 
 

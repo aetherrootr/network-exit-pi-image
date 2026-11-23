@@ -100,7 +100,8 @@ class RecoveryTests(unittest.TestCase):
 
     def test_unsigned_flag_requires_local_path_and_exact_confirmation_before_commands(self):
         with patch.object(update.os,'geteuid',return_value=0),patch.object(update.subprocess,'run') as run:
-            for bundle,phrase in ((None,recovery.CONFIRMATION),(self.bundle,''),(self.bundle,'yes')):
+            for bundle,phrase in ((None,recovery.CONFIRMATION),(self.bundle,''),(self.bundle,'yes'),
+                                  (self.bundle,f'`{recovery.CONFIRMATION}`')):
                 with self.subTest(bundle=bundle,phrase=phrase),self.assertRaises(ValueError):
                     update.install(bundle,{},skip_signature_verification=True,confirmation=phrase)
             run.assert_not_called()
@@ -132,7 +133,8 @@ os.geteuid=lambda:0
 answer=update.console_confirmation('/fixture/recovery.raucb')
 print('ACCEPTED' if answer==ota_recovery.CONFIRMATION else 'CANCELLED',flush=True)
 '''
-        for answer,expected in ((recovery.CONFIRMATION.encode()+b'\n',b'ACCEPTED'),(b'yes\n',b'CANCELLED'),(b'\x04',b'CANCELLED')):
+        for answer,expected in ((recovery.CONFIRMATION.encode()+b'\n',b'ACCEPTED'),(b'yes\n',b'CANCELLED'),
+                                (f'`{recovery.CONFIRMATION}`\n'.encode(),b'CANCELLED'),(b'\x04',b'CANCELLED')):
             with self.subTest(answer=answer):
                 master,slave=pty.openpty();process=None
                 def controlling_terminal():
@@ -145,7 +147,7 @@ print('ACCEPTED' if answer==ota_recovery.CONFIRMATION else 'CANCELLED',flush=Tru
                     while b'to continue: ' not in prompt and time.monotonic()<deadline:
                         if select.select([master],[],[],0.1)[0]:prompt+=os.read(master,4096)
                         if process.poll() is not None:break
-                    self.assertIn(b'to continue: ',prompt)
+                    self.assertIn(f'Type exactly `{recovery.CONFIRMATION}` (without backticks) to continue: '.encode(),prompt)
                     os.write(master,answer)
                     output,_=process.communicate(timeout=5)
                     self.assertEqual(process.returncode,0,output);self.assertIn(expected,output)

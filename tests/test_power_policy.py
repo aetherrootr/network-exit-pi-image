@@ -45,4 +45,4 @@ class PowerPolicyTests(unittest.TestCase):
                 shutil.copy2(source_path('usr/lib/network-exit/power-command-guard'),target)
                 result=subprocess.run([str(target)],capture_output=True,text=True)
                 self.assertEqual(result.returncode,1)
-                self.assertIn('enodectl reboot',result.stderr)
+                self.assertIn('`sudo enodectl reboot`',result.stderr)

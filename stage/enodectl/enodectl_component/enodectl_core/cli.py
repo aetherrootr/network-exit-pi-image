@@ -40,7 +40,7 @@ def main(argv=None):
             parser.print_help()
             return 0
         if args._entry.get('root', True) and os.geteuid() != 0:
-            raise ValueError(f'Run sudo enodectl {args.command}')
+            raise ValueError(f'Run `sudo enodectl {args.command}`')
         return registry.resolve(args._entry['handler'])(args, args._parser) or 0
     except (ValueError, OSError, KeyError, EOFError, subprocess.SubprocessError) as exc:
         parser.exit(1, f'enodectl: {exc}\n')

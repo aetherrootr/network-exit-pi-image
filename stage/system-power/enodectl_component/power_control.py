@@ -15,7 +15,7 @@ def uptime(): return float(Path('/proc/uptime').read_text().split()[0])
 
 def reboot_system(force=False, reason='operator'):
     if os.geteuid() != 0:
-        raise ValueError('Run sudo enodectl reboot')
+        raise ValueError('Run `sudo enodectl reboot`')
     if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', reason):
         raise ValueError('Invalid reboot reason')
     try: age = uptime()

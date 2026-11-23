@@ -129,7 +129,7 @@ def apply(settings=None, selected=None):
 @contextmanager
 def lock():
     if os.geteuid() != 0 or not os.path.ismount(STATE):
-        raise ValueError('Run with sudo on a node with STATE mounted')
+        raise ValueError('Run with `sudo` on a node with STATE mounted')
     with (STATE / 'network.lock').open('w') as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
         yield

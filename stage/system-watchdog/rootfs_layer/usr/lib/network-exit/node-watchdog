@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-[[ $EUID == 0 ]] || { echo "Run with sudo." >&2; exit 1; }
+[[ $EUID == 0 ]] || { echo 'Run with `sudo`.' >&2; exit 1; }
 
     # Read sysfs only. Opening /dev/watchdog0 would interfere with PID 1 ownership.
     systemctl show --property=WatchdogDevice --property=RuntimeWatchdogUSec --property=RebootWatchdogUSec

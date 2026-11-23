@@ -9,7 +9,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch, Mock
-from textual.widgets import Button, DataTable, Input, Select, Static
+from textual.widgets import Button, DataTable, Input, Label, Select, Static
 import components
 import service_manager
 import network_config
@@ -181,6 +181,8 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.click('#configure');await self.settle(app,pilot)
                 form=app.screen
                 self.assertFalse(form.query_one('#field-skip_signature_verification',Select).value)
+                labels='\n'.join(str(label.content) for label in form.query(Label))
+                self.assertIn(f'type exactly `{CONFIRMATION}` (without backticks)',labels)
                 form.query_one('#field-bundle',Input).value='/fixture/recovery.raucb'
                 form.query_one('#field-skip_signature_verification',Select).value=True
                 form.query_one('#field-confirmation',Input).value=CONFIRMATION

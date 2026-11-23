@@ -16,9 +16,9 @@
     }
   ],
   "blocked_commands": {
-    "poweroff": "Poweroff is disabled on this node. Use sudo enodectl reboot to restart.",
-    "halt": "Poweroff is disabled on this node. Use sudo enodectl reboot to restart.",
-    "shutdown": "Poweroff is disabled on this node. Use sudo enodectl reboot to restart."
+    "poweroff": "Poweroff is disabled on this node. Use `sudo enodectl reboot` to restart.",
+    "halt": "Poweroff is disabled on this node. Use `sudo enodectl reboot` to restart.",
+    "shutdown": "Poweroff is disabled on this node. Use `sudo enodectl reboot` to restart."
   },
   "private": {
     "systemctl-guard": {

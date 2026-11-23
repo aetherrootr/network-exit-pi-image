@@ -9,7 +9,7 @@ import setup_state
 
 def initialize():
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        raise ValueError('Interactive setup requires a terminal; connect with ssh -t')
+        raise ValueError('Interactive setup requires a terminal; connect with `ssh -t`')
     from service_tui import ServiceApp
     import service_manager
     configure_accounts(retain_admin_accounts)
@@ -19,7 +19,7 @@ def initialize():
 
 
 def main(first_boot=False):
-    if os.geteuid() != 0: raise ValueError('Run sudo enodectl config')
+    if os.geteuid() != 0: raise ValueError('Run `sudo enodectl config`')
     with initialization_lock():
         if not os.path.ismount(STATE):
             raise ValueError('Persistent STATE is not mounted; setup cannot continue')
@@ -30,7 +30,7 @@ def main(first_boot=False):
             initialize()
         else:
             if not sys.stdin.isatty() or not sys.stdout.isatty():
-                raise ValueError('Interactive configuration requires a terminal; connect with ssh -t')
+                raise ValueError('Interactive configuration requires a terminal; connect with `ssh -t`')
             import service_manager
             from service_tui import ServiceApp
             service_manager.ensure_management()

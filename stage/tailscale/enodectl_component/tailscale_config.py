@@ -24,9 +24,9 @@ def check():
 
 
 def save(values):
-    if values['provider'] not in ('official', 'headscale'): raise ValueError('Choose official or headscale')
+    if values['provider'] not in ('official', 'headscale'): raise ValueError('Choose `official` or `headscale`')
     target = control.OFFICIAL if values['provider'] == 'official' else control.control_url(values['headscale_url'].strip())
-    if values['provider'] == 'headscale' and target == control.OFFICIAL: raise ValueError('Choose official for the official control plane')
+    if values['provider'] == 'headscale' and target == control.OFFICIAL: raise ValueError('Choose `official` for the official control plane')
     current = control.preferences()
     before = control.backend_status()
     identity = before.get('HaveNodeKey', before['BackendState'] not in ('NoState', 'NeedsLogin'))

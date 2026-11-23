@@ -128,7 +128,7 @@ def open_directory(parent, name):
 
 def require_appliance():
     if os.geteuid() != 0 or not os.path.ismount(STATE):
-        raise ValueError('Run with sudo on an appliance with persistent STATE mounted')
+        raise ValueError('Run with `sudo` on an appliance with persistent STATE mounted')
 
 
 @contextmanager
@@ -225,7 +225,7 @@ def append_keys(keys, username):
 
 def add(source, username):
     if os.geteuid() != 0 or not os.path.ismount(STATE):
-        raise ValueError('Run with sudo on an appliance with persistent STATE mounted')
+        raise ValueError('Run with `sudo` on an appliance with persistent STATE mounted')
     keys = validated_keys(read_source(source))
     fingerprints = append_keys(keys, username)
     print(f'Added {len(fingerprints)} SSH public key(s) for {username}; existing keys were preserved.')

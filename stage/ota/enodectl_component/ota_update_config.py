@@ -14,4 +14,4 @@ def save(values):
                    retry_failed=bool(values['retry_failed']),
                    skip_signature_verification=bool(values['skip_signature_verification']),
                    confirmation=values['confirmation'], report=lambda message: None)
-    return 'OTA installed to the inactive slot. Inspect bootchain status, then use sudo enodectl reboot. Three trial boots are available.'
+    return 'OTA installed to the inactive slot. Inspect bootchain status, then use `sudo enodectl reboot`. Three trial boots are available.'

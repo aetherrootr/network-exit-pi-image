@@ -65,11 +65,11 @@ def download(asset, destination):
 
 def install(bundle, source, reboot=False, retry_failed=False, skip_signature_verification=False, confirmation='', report=print):
     if os.geteuid() != 0:
-        raise ValueError('Run enodectl update install with sudo')
+        raise ValueError('Run `sudo enodectl update install`')
     if skip_signature_verification:
         from ota_recovery import CONFIRMATION
         if not bundle or confirmation != CONFIRMATION:
-            raise ValueError('Unsigned recovery requires a local bundle and the exact confirmation phrase: ' + CONFIRMATION)
+            raise ValueError(f'Unsigned recovery requires a local bundle and the exact confirmation phrase: `{CONFIRMATION}` (without backticks)')
     cache = STATE / 'update-cache'
     cache.mkdir(parents=True, exist_ok=True, mode=0o700)
     with LOCK.open('w') as lock:
@@ -77,13 +77,13 @@ def install(bundle, source, reboot=False, retry_failed=False, skip_signature_ver
         # Re-read boot state under the operator lock, never from a stale preflight.
         info, active, state = platform()
         if not (STATE / 'config/initialized').exists():
-            raise ValueError('Complete enodectl config before installing OTA updates')
+            raise ValueError('Complete `sudo enodectl config` before installing OTA updates')
         if state['ne_pending'] != 'none' and (int(state['ne_left']) > 0 or state['ne_pending'] == active):
             raise ValueError('A trial update is already pending; boot and confirm it before another update')
         if not skip_signature_verification and not TRUST.is_file():
             raise ValueError('OTA trust certificate is missing')
         if state['ne_pending'] != 'none' and not retry_failed:
-            raise ValueError('The previous trial was not confirmed; inspect it or explicitly use --retry-failed')
+            raise ValueError('The previous trial was not confirmed; inspect it or explicitly use `--retry-failed`')
         with tempfile.TemporaryDirectory(prefix='ota-', dir=cache) as tmp:
             local = Path(tmp) / 'update.raucb'
             if bundle:
@@ -123,24 +123,24 @@ def install(bundle, source, reboot=False, retry_failed=False, skip_signature_ver
     if reboot:
         reboot_system(reason='update')
     else:
-        report('Run sudo enodectl reboot when ready. This command did not reboot the device.')
+        report('Run `sudo enodectl reboot` when ready. This command did not reboot the device.')
 
 
 def console_confirmation(bundle):
     from ota_recovery import CONFIRMATION
     if os.geteuid() != 0:
-        raise ValueError('Run enodectl update install with sudo')
+        raise ValueError('Run `sudo enodectl update install`')
     if not bundle:
         raise ValueError('Signature bypass requires an explicit local OTA bundle')
     try:
         with open('/dev/tty', 'w') as output, open('/dev/tty', 'r') as input_stream:
             output.write('WARNING: OTA signature verification will be skipped for this install.\n'
                          'The supplied image can execute arbitrary privileged code after boot.\n'
-                         f'Local bundle: {bundle}\nType {CONFIRMATION} to continue: ')
+                         f'Local bundle: {bundle}\nType exactly `{CONFIRMATION}` (without backticks) to continue: ')
             output.flush()
             return input_stream.readline().strip()
     except OSError as exc:
-        raise ValueError('Signature bypass requires an interactive terminal; connect with ssh -t or use the service TUI') from exc
+        raise ValueError('Signature bypass requires an interactive terminal; connect with `ssh -t` or use the service TUI') from exc
 
 
 def configure_parser(parser):
@@ -168,7 +168,7 @@ def run(args, parser):
                 current = json.loads(RELEASE.read_text())['version']
                 available = latest(source)
                 print(f'Installed: {current}\nUpstream: {available["version"]}')
-                print('Already current.' if current == available['version'] else 'Update available. Run sudo enodectl update install to install explicitly.')
+                print('Already current.' if current == available['version'] else 'Update available. Run `sudo enodectl update install` to install explicitly.')
     except HTTPError as exc:
         parser.exit(1, 'No published release is available.\n' if exc.code == 404 else f'Update check failed: HTTP {exc.code}\n')
     except (ValueError, OSError, KeyError, URLError, subprocess.SubprocessError) as exc:

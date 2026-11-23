@@ -25,7 +25,7 @@ _spec.loader.exec_module(factory)
 def read_ssh_keys(path):
     for command in ['ssh-keygen', 'losetup', 'debugfs', 'e2fsck']:
         if not shutil.which(command):
-            raise ValueError(f'--ssh-key requires {command} on the Linux writer')
+            raise ValueError(f'`--ssh-key` requires `{command}` on the Linux writer')
     helper = Path(__file__).with_name('sshpub.py')
     if not helper.exists():
         helper = Path(__file__).resolve().parents[2] / 'stage/system-access/enodectl_component/sshpub.py'
@@ -34,7 +34,7 @@ def read_ssh_keys(path):
     spec.loader.exec_module(module)
     with Path(path).open('rb') as stream:
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise ValueError('--ssh-key must name a regular public-key file')
+            raise ValueError('`--ssh-key` must name a regular public-key file')
         data = stream.read(module.MAX_SOURCE + 1)
     if len(data) > module.MAX_SOURCE:
         raise ValueError('Public-key file exceeds 64 KiB')
@@ -93,7 +93,7 @@ def provision_ssh_key(device, manifest, keys):
         finally: os.close(descriptor)
     finally:
         subprocess.run(['losetup', '--detach', loop], check=True)
-    print('Per-device SSH public keys saved for pi. First SSH login: ssh pi@DEVICE_ADDRESS')
+    print('Per-device SSH public keys saved for pi. First SSH login: `ssh pi@DEVICE_ADDRESS` (replace `DEVICE_ADDRESS` with the node address)')
 
 
 def read_manifest(directory):
@@ -278,11 +278,11 @@ def main():
         if sys.platform != 'linux':
             raise ValueError('This factory writer requires Linux')
         if not args.device:
-            parser.error('Specify a whole-card device path, or use --verify-only')
+            parser.error('Specify a whole-card device path, or use `--verify-only`')
         key_path = str(Path(args.ssh_key).resolve(strict=True)) if args.ssh_key else None
         keys = read_ssh_keys(key_path) if key_path else None
         if keys and manifest.get('layout') != 'ab-v2':
-            raise ValueError('--ssh-key requires an ab-v2 factory package')
+            raise ValueError('`--ssh-key` requires an ab-v2 factory package')
         device = str(Path(args.device).resolve(strict=True))
         if not device.startswith('/dev/'):
             raise ValueError('Target must be under /dev')

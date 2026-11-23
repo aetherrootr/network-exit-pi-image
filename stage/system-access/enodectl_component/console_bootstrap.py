@@ -15,13 +15,13 @@ def main():
         try:
             # Wait for a person so an unattended console cannot claim the
             # initialization lock ahead of an authorized SSH login.
-            input('Press Enter to begin setup, or connect using an authorized pi SSH login. ')
+            input('Press `Enter` to begin setup, or connect using an authorized pi SSH login. ')
             if READY.is_file(): break
             subprocess.run(['/usr/local/sbin/enodectl', 'config', '--first-boot'], check=True)
         except (EOFError, KeyboardInterrupt):
             return 0
         except (OSError, subprocess.CalledProcessError) as exc:
-            print(f'Setup did not finish: {exc}. Press Enter to retry or use an authorized pi SSH login.', file=sys.stderr)
+            print(f'Setup did not finish: {exc}. Press `Enter` to retry or use an authorized pi SSH login.', file=sys.stderr)
     return 0
 
 
