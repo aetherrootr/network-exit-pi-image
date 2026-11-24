@@ -1,0 +1,9 @@
+[Unit]
+Description=Follow the selected Ethernet or Wi-Fi default route for exit policy
+Requires=network-exit-network.service
+After=network-exit-network.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/network-exit/network-runtime refresh-uplink
+TimeoutStartSec=30s

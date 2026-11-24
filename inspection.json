@@ -179,7 +179,7 @@
   "ddns": "Optional preinstalled ddclient; default disabled; Cloudflare/DuckDNS/DynDNS2; one A or AAAA profile; credentials/cache/status on STATE; bounded one-shot systemd timer; no real provider updates tested",
   "host_firewall": "Optional/default OFF enode_host nftables table; explicit SSH source CIDRs/uplink listener ports; owned-table atomic updates; independent WG protection retained when OFF",
   "network_trial": "90-second systemd rollback timer plus STATE previous-config record; explicit keep confirmation; unconfirmed boot restores previous network settings",
-  "network_management": "Uplink, host firewall, SSH source CIDRs, additional listener ports and address/route/DNS diagnostics; DHCP/DNS/default-route provisioning stays with the base OS",
+  "network_management": "Initial-static Ethernet provisioning at 192.168.77.1/24, permanently retired after successful setup; normal Ethernet DHCP; persistent WPA2/WPA3 Wi-Fi through Netplan/networkd; joint 90-second trials/early-boot rollback; physical-link SSH/firewall and route-driven exit uplink refresh",
   "software_stages": 16,
   "build_stage_plan": "image_builder/stages.json: plain non-empty JSON array of 25 stage IDs; order only, with context/dependencies in stage/<id>/stage.json",
   "source_asset_layout": "stage/<id> requires stage.json and install.sh only; enodectl_component/, rootfs_layer/ requirements.txt and config/ are optional and omitted when unnecessary; no placeholder files or global source rootfs",
@@ -202,7 +202,7 @@
   "tui_logic_separation": "Per-stage *_view.py/ssh_view.py/service_tui.py presentation; *_config.py/ssh_editor.py/service_manager.py backends; shared Textual form/confirmation/status widgets in enodectl_core/textual_ui.py",
   "textual_host_interactions_tested": true,
   "textual_arm64_runtime_tested": false,
-  "local_test_count": 175,
+  "local_test_count": 189,
   "local_tests_skipped": 4,
   "build_stage_contexts": {
     "host-shell": "Shared build_stage function for image resources and cleanup state",
@@ -290,5 +290,31 @@
     "validation": "Component preparation/compression, actual archive extraction, CLI verification and regular-file A/B reconstruction passed locally; malformed maps, payload corruption, short writes, B readback corruption and changed source rejection covered. Full ARM64 component build pending.",
     "hardware_tested": false,
     "local_validation": "175 tests run: 171 passed, 4 skipped because ddclient, RAUC/squashfs recovery and growpart tools are unavailable on this host. CI installs and requires those integration tools."
+  },
+  "direct_ethernet_wifi": {
+    "base_stack_inspected": {
+      "netplan": "1.1.2-7",
+      "systemd": "257.13-1~deb13u1",
+      "wpasupplicant": "2:2.10-24",
+      "iw": "6.9-1+b1"
+    },
+    "hostname": "enode.local",
+    "credentials_directory": "STATE/config/connectivity (0700; files 0600)",
+    "wifi_authentication": [
+      "WPA2-PSK",
+      "WPA3-SAE"
+    ],
+    "default_route_preference": "Ethernet DHCP metric 100, Wi-Fi DHCP metric 600; Ethernet IPv6 RA metric 100",
+    "hardware_validated": false,
+    "validation": "Real Debian Netplan 1.1.2-7 generated DHCP/static provisioning and WPA2/WPA3 fixtures; actual early-boot profile selection/rollback; runtime static retirement, failed-transition retry and mandatory flash-key guards tested. Radio association, direct-cable SSH and real handover remain untested.",
+    "local_test_count": 189,
+    "local_tests_skipped": 4,
+    "full_image_build_validated": false,
+    "initial_static_ipv4": "192.168.77.1/24",
+    "operator_computer_ipv4": "192.168.77.2/24 (no gateway or DNS)",
+    "static_retired_after_successful_setup": true,
+    "provisioning_reopens_after_reconfiguration_failure": false,
+    "factory_ssh_key_required": true,
+    "verification_only_requires_key": false
   }
 }

@@ -1,0 +1,44 @@
+#!/bin/sh
+# STATE and /etc/network-exit are already mounted by the required earlier hook.
+PREREQ="zz-network-exit-state"
+case "${1:-}" in prereqs) echo "$PREREQ"; exit 0;; esac
+set -eu
+root="${rootmnt:?}/etc/network-exit/connectivity"
+mkdir -p "$root"
+chmod 700 "$root"
+if [ -f "$root/pending" ] && [ -f "$rootmnt/var/lib/network-exit/network-pending.json" ]; then
+    # Restore before PID 1's Netplan generator reads persistent credentials.
+    # Keep the journal for the runtime network-policy rollback to finish.
+    for pair in 'previous-profile.json profile.json' 'previous-netplan.yaml netplan.yaml'; do
+        set -- $pair
+        cp "$root/$1" "$root/$2.boot-new"
+        chmod 600 "$root/$2.boot-new"
+        mv -f "$root/$2.boot-new" "$root/$2"
+    done
+elif [ -f "$root/pending" ]; then
+    # The main journal was durably removed after confirmation or rollback.
+    rm -f "$root/pending" "$root/previous-profile.json" "$root/previous-netplan.yaml"
+fi
+for pair in 'wifi-default-profile.json profile.json' 'wifi-default-netplan.yaml netplan.yaml'; do
+    set -- $pair
+    if [ ! -f "$root/$2" ]; then
+        cp "$rootmnt/usr/share/network-exit/$1" "$root/$2"
+    fi
+    chmod 600 "$root/$2"
+done
+# The permanent marker prevents a later failed reconfiguration from reopening
+# factory provisioning. Migrate previously initialized nodes directly to DHCP.
+config="$rootmnt/etc/network-exit"
+if [ -f "$config/initialized" ] || [ -f "$config/network-provisioned" ]; then
+    if [ ! -f "$config/network-provisioned" ]; then
+        printf '1\n' > "$config/network-provisioned.boot-new"
+        chmod 600 "$config/network-provisioned.boot-new"
+        mv -f "$config/network-provisioned.boot-new" "$config/network-provisioned"
+    fi
+    template=wired-dhcp.yaml
+else
+    template=wired-bootstrap.yaml
+fi
+cp "$rootmnt/usr/share/network-exit/$template" "$rootmnt/etc/netplan/10-dhcp-all-interfaces.yaml.boot-new"
+chmod 600 "$rootmnt/etc/netplan/10-dhcp-all-interfaces.yaml.boot-new"
+mv -f "$rootmnt/etc/netplan/10-dhcp-all-interfaces.yaml.boot-new" "$rootmnt/etc/netplan/10-dhcp-all-interfaces.yaml"

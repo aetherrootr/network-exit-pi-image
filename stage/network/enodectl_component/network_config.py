@@ -12,6 +12,7 @@ import time
 import uuid
 
 import components
+import connectivity
 
 STATE = Path('/var/lib/network-exit')
 TRIAL_SECONDS = 90
@@ -49,7 +50,9 @@ def uplink(settings):
         routes = json.loads(subprocess.check_output(['ip', '-j', '-4', 'route', 'show', 'default'], text=True))
         previous = components.CONFIG / 'rules.nft'
         candidates = re.findall(r'iifname "wg-home" oifname "([A-Za-z0-9_.-]+)"', previous.read_text()) if previous.exists() else []
-        candidates += [r.get('dev', '') for r in routes]
+        routes = sorted(routes, key=lambda item: item.get('metric', 0))
+        # Follow live routing before historical WG hints so Wi-Fi can take over.
+        candidates = [r.get('dev', '') for r in routes] + candidates
         candidates += [p.name for p in sorted(Path('/sys/class/net').iterdir())]
         name = next((n for n in candidates if re.fullmatch(r'[A-Za-z0-9_.-]{1,15}', n) and
                      not n.startswith(('lo', 'wg', 'tailscale', 'tun', 'tap'))), '')
@@ -65,19 +68,23 @@ def load():
     return validate(json.loads(path.read_text()) if path.exists() else dict(DEFAULT))
 
 
-def host_rules(settings, device, selected):
+def host_rules(settings, device, selected, management=None):
     if not settings['firewall']: return ''
     lines = ['table inet enode_host {', ' chain input {',
              '  type filter hook input priority 10; policy drop;',
              '  iifname "lo" accept', '  ct state established,related accept', '  ct state invalid drop',
              '  meta l4proto { icmp, ipv6-icmp } accept',
-             '  iifname "tailscale0" accept',
-             f'  iifname "{device}" udp sport 67 udp dport 68 accept',
-             f'  iifname "{device}" udp sport 547 udp dport 546 accept',
-             f'  iifname "{device}" udp dport 41641 accept']
-    for source in settings['ssh_sources']:
-        family = 'ip6' if ':' in source else 'ip'
-        lines.append(f'  iifname "{device}" {family} saddr {source} tcp dport 22 accept')
+             '  iifname "tailscale0" accept']
+    for link in management or [device]:
+        interface(link)
+        lines += [f'  iifname "{link}" udp sport 67 udp dport 68 accept',
+                  f'  iifname "{link}" udp sport 547 udp dport 546 accept',
+                  f'  iifname "{link}" udp dport 41641 accept',
+                  f'  iifname "{link}" ip ttl 255 udp dport 5353 accept',
+                  f'  iifname "{link}" ip6 hoplimit 255 udp dport 5353 accept']
+        for source in settings['ssh_sources']:
+            family = 'ip6' if ':' in source else 'ip'
+            lines.append(f'  iifname "{link}" {family} saddr {source} tcp dport 22 accept')
     for protocol in ('tcp', 'udp'):
         if settings[protocol + '_ports']:
             ports = ', '.join(str(p) for p in settings[protocol + '_ports'])
@@ -96,7 +103,8 @@ def apply(settings=None, selected=None):
     selected = selected if selected is not None else components.choices()
     has_wg = (components.CONFIG / 'rules.nft').exists()
     device = uplink(settings) if settings['firewall'] or has_wg else None
-    rules = host_rules(settings, device, selected)
+    management = connectivity.management_interfaces(device) if settings['firewall'] else None
+    rules = host_rules(settings, device, selected, management)
     tables = [('inet', 'enode_host')]
     if has_wg:
         wg_rules = importlib.import_module('wireguard_tool').home_nft(device)
@@ -124,6 +132,8 @@ def apply(settings=None, selected=None):
     if v6: args += ['net.ipv6.conf.all.accept_ra=2', 'net.ipv6.conf.default.accept_ra=2']
     args += [f'net.ipv4.ip_forward={int(v4)}', f'net.ipv6.conf.all.forwarding={int(v6)}']
     subprocess.run(args, check=True, capture_output=True)
+    if device:
+        components.save(components.CONFIG / 'active-uplink', device + '\n')
 
 
 @contextmanager
@@ -137,7 +147,9 @@ def lock():
 
 def _rollback(boot=False):
     pending = STATE / 'network-pending.json'
-    if not pending.exists(): return
+    if not pending.exists():
+        if (connectivity.directory() / 'pending').exists(): connectivity.commit()
+        return
     trial = json.loads(pending.read_text())
     previous = validate(trial['previous'])
     components.save(components.CONFIG / 'network.json', json.dumps(previous) + '\n')
@@ -147,8 +159,11 @@ def _rollback(boot=False):
         if name not in ('rules.nft', 'forwarding.conf'):
             raise ValueError('Invalid saved network file')
         components.save(components.CONFIG / name, content)
+    if connectivity.restore_files() and not boot: connectivity.activate()
     if not boot: apply(previous)
     pending.unlink()
+    _sync_directory(STATE)
+    if (connectivity.directory() / 'pending').exists(): connectivity.commit()
 
 
 def rollback():
@@ -165,11 +180,13 @@ def sync(selected=None):
     with lock(): apply(selected=selected)
 
 
-def begin(settings):
+def begin(settings, link_settings=None):
     settings = validate(settings)
+    candidate = connectivity.validate(link_settings) if link_settings is not None else None
     with lock():
         pending = STATE / 'network-pending.json'
         if pending.exists(): raise ValueError('A network trial is already pending confirmation')
+        if (connectivity.directory() / 'pending').exists(): connectivity.commit()
         token = uuid.uuid4().hex
         generated = {name: (components.CONFIG / name).read_text() for name in ('rules.nft', 'forwarding.conf')
                      if (components.CONFIG / name).exists()}
@@ -177,6 +194,9 @@ def begin(settings):
                         'deadline': time.monotonic() + TRIAL_SECONDS}) + '\n')
         try:
             subprocess.run(['systemctl', 'restart', 'network-exit-network-rollback.timer'], check=True, capture_output=True)
+            if candidate is not None and candidate != connectivity.load():
+                connectivity.stage(candidate)
+                connectivity.activate()
             apply(settings)
             components.save(components.CONFIG / 'network.json', json.dumps(settings) + '\n')
         except Exception:
@@ -194,11 +214,35 @@ def confirm(token):
             _rollback()
             raise ValueError('Network confirmation expired; previous configuration restored')
         path.unlink()
+        _sync_directory(STATE)
+        if (connectivity.directory() / 'pending').exists(): connectivity.commit()
         subprocess.run(['systemctl', 'stop', 'network-exit-network-rollback.timer'], check=True, capture_output=True)
 
 
+def _sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
+
+
+def refresh_uplink():
+    with lock():
+        if (STATE / 'network-pending.json').exists(): return
+        connectivity.finish_wired_provisioning()
+        settings = load()
+        if not settings['firewall'] and not (components.CONFIG / 'rules.nft').exists(): return
+        device = uplink(settings)
+        path = components.CONFIG / 'active-uplink'
+        if not path.exists() or path.read_text().strip() != device: apply(settings)
+
+
 def diagnostics():
-    lines = []
+    profile = connectivity.form_values()
+    provisioned = (components.CONFIG / 'network-provisioned').exists() or (components.CONFIG / 'initialized').exists()
+    lines = ['Ethernet: DHCP only after provisioning; temporary bootstrap address 192.168.77.1/24 before initial setup.',
+             'Provisioning: ' + ('complete; bootstrap address retired or removal pending' if provisioned else 'initial setup'),
+             'Wi-Fi: ' + ('enabled' if profile['wifi_enabled'] else 'disabled'),
+             'DHCP route metrics: Ethernet 100, Wi-Fi 600. Ethernet IPv6 RA metric: 100. No Internet probing/failover is performed.']
     for command in (['ip', '-brief', 'address'], ['ip', '-4', 'route'], ['ip', '-6', 'route']):
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=10)
         lines += [' '.join(command), result.stdout.strip() or result.stderr.strip()]

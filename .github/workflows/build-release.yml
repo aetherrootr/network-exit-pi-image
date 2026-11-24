@@ -48,7 +48,7 @@ jobs:
       - name: Install builder dependencies
         run: |
           sudo apt-get update
-          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv ddclient xz-utils util-linux fdisk e2fsprogs python3 curl coreutils nftables iproute2 u-boot-tools rauc openssl openssh-client openssh-server sudo squashfs-tools cloud-guest-utils
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y netplan.io python3-venv ddclient xz-utils util-linux fdisk e2fsprogs python3 curl coreutils nftables iproute2 u-boot-tools rauc openssl openssh-client openssh-server sudo squashfs-tools cloud-guest-utils
           sudo install -d -m 0755 /run/sshd
       - name: Prepare isolated controller packager
         run: |
@@ -56,7 +56,7 @@ jobs:
           "${{ runner.temp }}/enodectl-tools/bin/python" -m pip install --no-cache-dir -r stage/enodectl/build-requirements.txt -r stage/enodectl/requirements.txt
       - name: Validate sources
         run: |
-          sudo env NETWORK_EXIT_SHIV_TESTS=required ENODECTL_TEST_SHIV_PYTHON="${{ runner.temp }}/enodectl-tools/bin/python" NETWORK_EXIT_DDNS_TESTS=required NETWORK_EXIT_SSH_CA_TESTS=required NETWORK_EXIT_OVERLAY_TESTS=required NETWORK_EXIT_NETWORK_TESTS=required NETWORK_EXIT_OTA_TESTS=required NETWORK_EXIT_GROW_TESTS=required python3 -m unittest discover -s tests -v
+          sudo env NETWORK_EXIT_NETPLAN_TESTS=required NETWORK_EXIT_SHIV_TESTS=required ENODECTL_TEST_SHIV_PYTHON="${{ runner.temp }}/enodectl-tools/bin/python" NETWORK_EXIT_DDNS_TESTS=required NETWORK_EXIT_SSH_CA_TESTS=required NETWORK_EXIT_OVERLAY_TESTS=required NETWORK_EXIT_NETWORK_TESTS=required NETWORK_EXIT_OTA_TESTS=required NETWORK_EXIT_GROW_TESTS=required python3 -m unittest discover -s tests -v
           for script in build.sh image_builder/*.sh stage/*/install.sh stage/common.sh release/burn.sh; do
             bash -n "$script"
           done
@@ -189,10 +189,10 @@ jobs:
           For initial provisioning, download network-exit-factory-*.tar.gz, extract it, enter its directory, and run on Linux:
 
           ```bash
-          ./burn.sh /dev/xxx
+          ./burn.sh /dev/xxx --ssh-key ~/.ssh/id_ed25519.pub
           ```
 
-          Use a whole-card device path. The script verifies the image, rejects mounted devices, requests sudo, asks for confirmation, writes the image, and verifies it by reading it back. All SD card data will be overwritten.
+          Provide your pi login SSH public key and a whole-card device path. The script verifies the image, rejects mounted devices, requests sudo, asks for confirmation, writes the image, and verifies it by reading it back. All SD card data will be overwritten.
 
           The first interactive pi SSH login automatically opens the setup wizard. Tailscale is mandatory and supports the official control plane or Headscale. WireGuard, Cloudflare Tunnel and sing-box are preinstalled optional capabilities selected in that wizard. For an existing A/B device, invoke enodectl update manually to check and install the signed network-exit-ota-*.raucb package. No unattended image installation is enabled. See README for trial boots, confirmation and rollback.
           NOTES

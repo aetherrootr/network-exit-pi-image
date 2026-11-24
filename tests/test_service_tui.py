@@ -133,12 +133,20 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 await self.settle(app,pilot);await self.select(app,pilot,'network')
                 await pilot.click('#configure');await self.settle(app,pilot)
                 app.screen.query_one('#field-firewall',Select).value=True
+                password=app.screen.query_one('#field-wifi_password',Input)
+                self.assertTrue(password.password)
+                self.assertEqual(password.value,'')
+                app.screen.query_one('#field-wifi_enabled',Select).value=True
+                app.screen.query_one('#field-wifi_ssid',Input).value='Fixture Home'
+                password.value='fixture-private-wifi'
                 await pilot.click('#form-save');await self.confirm(app,pilot)
                 self.assertIsInstance(app.screen,Confirm)
                 self.assertGreater(app.screen.seconds,0);self.assertLessEqual(app.screen.seconds,90)
                 await self.confirm(app,pilot,False)
                 rollback.assert_called_once();keep.assert_not_called()
                 self.assertTrue(begin.call_args.args[0]['firewall'])
+                self.assertEqual(begin.call_args.kwargs['link_settings']['wifi_ssid'],'Fixture Home')
+                self.assertEqual(begin.call_args.kwargs['link_settings']['wifi_password'],'fixture-private-wifi')
 
     async def test_ssh_is_configurable_from_service_and_all_optional_views_open(self):
         app=ServiceApp(model=service_manager.ServiceModel())

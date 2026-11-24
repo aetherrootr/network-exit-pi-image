@@ -266,7 +266,7 @@ def main():
     parser.add_argument('device', nargs='?', help='Whole-card device, such as /dev/sdb or /dev/mmcblk0')
     parser.add_argument('--verify-only', action='store_true', help='Verify the release package without accessing a device')
     parser.add_argument('--dry-run', action='store_true', help='Check the image and target device without writing')
-    parser.add_argument('--ssh-key', help='Provision pi login keys from a local OpenSSH public-key file')
+    parser.add_argument('--ssh-key', help='Required for flashing/dry-run: local OpenSSH public-key file for pi')
     args = parser.parse_args()
     directory = Path(__file__).resolve().parents[1]
     try:
@@ -279,8 +279,12 @@ def main():
             raise ValueError('This factory writer requires Linux')
         if not args.device:
             parser.error('Specify a whole-card device path, or use `--verify-only`')
-        key_path = str(Path(args.ssh_key).resolve(strict=True)) if args.ssh_key else None
-        keys = read_ssh_keys(key_path) if key_path else None
+        if not args.ssh_key:
+            parser.error('Flashing requires `--ssh-key FILE` so pi can log in; only `--verify-only` needs no key')
+        key_path = str(Path(args.ssh_key).resolve(strict=True))
+        keys = read_ssh_keys(key_path)
+        if not keys:
+            raise ValueError('`--ssh-key` must contain at least one validated SSH public key')
         if keys and manifest.get('layout') != 'ab-v2':
             raise ValueError('`--ssh-key` requires an ab-v2 factory package')
         device = str(Path(args.device).resolve(strict=True))
@@ -297,7 +301,7 @@ def main():
         if os.geteuid() != 0:
             print('Requesting sudo privileges to write the SD card...', flush=True)
             command = ['sudo', '--', sys.executable, str(Path(__file__).resolve()), device]
-            if key_path: command += ['--ssh-key', key_path]
+            command += ['--ssh-key', key_path]
             os.execvp('sudo', command)
         with open('/dev/tty', 'r', encoding='utf-8') as tty_input, \
                 open('/dev/tty', 'w', encoding='utf-8') as tty_output:
@@ -308,9 +312,8 @@ def main():
                 raise ValueError('Cancelled. Nothing was written')
         inspect_device(device, manifest['image_bytes'])
         write_image(image, device, manifest)
-        if keys:
-            print('Factory image readback passed. Personalizing only STATE with the selected pi public keys.')
-            provision_ssh_key(device, manifest, keys)
+        print('Factory image readback passed. Personalizing only STATE with the selected pi public keys.')
+        provision_ssh_key(device, manifest, keys)
         subprocess.run(['blockdev', '--rereadpt', device], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print('Writing and readback verification complete. Remove the SD card and insert it into the Orange Pi.')
     except (ValueError, OSError, KeyError, lzma.LZMAError, subprocess.CalledProcessError) as exc:

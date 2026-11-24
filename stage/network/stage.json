@@ -9,9 +9,18 @@
   ],
   "packages": [
     "nftables",
-    "iptables"
+    "iptables",
+    "netplan.io",
+    "wpasupplicant",
+    "iw",
+    "systemd-resolved"
   ],
   "before_services": "network_setup:apply_selection",
+  "setup_notice": "Finishing initial setup removes temporary Ethernet address `192.168.77.1` shortly afterwards. Reconnect using the DHCP address, configured Wi-Fi or Tailscale. Later configuration failures do not reopen factory provisioning.",
+  "systemd_units": [
+    "network-exit-uplink-refresh.service",
+    "network-exit-uplink-refresh.timer"
+  ],
   "private": {
     "network-runtime": {
       "module": "network_runtime",
@@ -28,7 +37,7 @@
   ],
   "service": {
     "name": "network",
-    "label": "Network / firewall",
+    "label": "Network / Wi-Fi / firewall",
     "units": [
       "network-exit-network.service"
     ],
