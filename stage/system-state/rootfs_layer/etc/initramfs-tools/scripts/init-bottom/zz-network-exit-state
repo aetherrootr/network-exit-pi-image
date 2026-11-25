@@ -44,8 +44,8 @@ if [ -d "$state_root/config/accounts" ]; then
         [ ! -f "$state_root/config/accounts/$file" ] || {
             awk -F: 'NR==FNR { saved[$1]=$0; next } { if ($1 in saved) { print saved[$1]; delete saved[$1] } else print } END { for (name in saved) print saved[name] }' \
                 "$state_root/config/accounts/$file" "$rootmnt/etc/$file" > "$rootmnt/etc/$file.new"
-            /lib/network-exit/chmod --reference="$rootmnt/etc/$file" "$rootmnt/etc/$file.new"
-            /lib/network-exit/chown --reference="$rootmnt/etc/$file" "$rootmnt/etc/$file.new"
+            chmod --reference="$rootmnt/etc/$file" "$rootmnt/etc/$file.new"
+            chown --reference="$rootmnt/etc/$file" "$rootmnt/etc/$file.new"
             mv "$rootmnt/etc/$file.new" "$rootmnt/etc/$file"
         }
     done

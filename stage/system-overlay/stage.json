@@ -8,7 +8,12 @@
   ],
   "packages": [
     "overlayroot",
-    "busybox-static"
+    "bash",
+    "coreutils",
+    "grep",
+    "sed",
+    "gawk",
+    "mount"
   ],
   "service": {
     "name": "system-overlay",

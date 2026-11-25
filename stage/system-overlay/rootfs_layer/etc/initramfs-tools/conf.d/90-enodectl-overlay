@@ -1,2 +1,2 @@
-# Debian overlayroot requires a full initramfs shell and utilities such as grep.
-BUSYBOX=y
+# The network-exit hook supplies GNU Bash and the required GNU utilities.
+BUSYBOX=n

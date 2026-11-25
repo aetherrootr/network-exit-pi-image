@@ -30,7 +30,7 @@ for config in /boot/config-*; do
   kernel=${config##*/config-}
   update-initramfs -u -k "$kernel"
   # Execute the tools from the actual generated ARM64 archive. A file listing
-  # alone misses missing applets, broken symlinks and unsupported shell syntax.
+  # alone misses missing utilities, broken symlinks and unsupported shell syntax.
   initramfs_dir=$(mktemp -d /run/enodectl-initramfs.XXXXXX)
   trap 'rm -rf "$initramfs_dir"' EXIT
   unmkinitramfs "/boot/initrd.img-$kernel" "$initramfs_dir"
@@ -38,10 +38,19 @@ for config in /boot/config-*; do
   if [[ -d $initramfs_dir/main ]]; then initramfs_root=$initramfs_dir/main; fi
   chroot "$initramfs_root" /bin/sh -e <<'VERIFY_INITRAMFS'
     export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+    test -n "$BASH_VERSION"
     test "$(/bin/sh -c 'trap "echo ok" EXIT')" = ok
-    for utility in busybox grep sed awk chmod chown blkid mount modprobe cp mkdir mv tr touch; do
+    if command -v busybox; then echo 'Unexpected BusyBox in initramfs' >&2; exit 1; fi
+    for utility in bash grep sed awk chmod chown blkid mount umount modprobe cat cp mkdir mv rm rmdir tr touch uname stat head sha512sum mktemp readlink; do
       command -v "$utility" || { echo "Missing initramfs utility: $utility" >&2; exit 1; }
     done
+    grep --version | grep -q 'GNU grep'
+    sed --version | grep -q 'GNU sed'
+    awk --version | grep -q 'GNU Awk'
+    for utility in cat cp mkdir mv rm rmdir tr chmod chown touch uname stat head sha512sum mktemp readlink; do
+      "$utility" --version | grep -q 'GNU coreutils'
+    done
+    mount --version | grep -q 'util-linux'
     printf "nodev\toverlay\n" | grep -q "$(printf "\t")overlay$"
     printf "test\n" | grep -Eq "^test$"
     test -r /lib/network-exit/overlay-limit.sh
@@ -49,8 +58,8 @@ for config in /boot/config-*; do
     test -x /scripts/init-bottom/zz-network-exit-state
     test -x /scripts/init-bottom/zzz-enode-connectivity
     touch /enodectl-verify-reference /enodectl-verify-target
-    /lib/network-exit/chmod --reference=/enodectl-verify-reference /enodectl-verify-target
-    /lib/network-exit/chown --reference=/enodectl-verify-reference /enodectl-verify-target
+    chmod --reference=/enodectl-verify-reference /enodectl-verify-target
+    chown --reference=/enodectl-verify-reference /enodectl-verify-target
     echo 'Initramfs shell and utilities verified'
 VERIFY_INITRAMFS
   rm -rf "$initramfs_dir"
