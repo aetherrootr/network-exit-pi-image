@@ -90,7 +90,8 @@ if part uuid mmc ${devnum}:4 ne_stateuuid; then
     for ne_attempt in primary fallback; do
         if test "${ne_slot}" = "A"; then setenv ne_part 1; else setenv ne_part 2; fi
         if part uuid mmc ${devnum}:${ne_part} ne_rootuuid; then
-            setenv bootargs "root=PARTUUID=${ne_rootuuid} rootwait ro panic=10 console=ttyS0,115200 console=tty1 rauc.slot=${ne_slot} ${ne_trialarg} ${ne_fallbackarg} network_exit.state=${ne_stateuuid} overlayroot=tmpfs:recurse=0"
+            # Keep serial as the primary userspace console for initramfs diagnostics.
+            setenv bootargs "root=PARTUUID=${ne_rootuuid} rootwait ro panic=10 console=tty1 console=ttyS0,115200 rauc.slot=${ne_slot} ${ne_trialarg} ${ne_fallbackarg} network_exit.state=${ne_stateuuid} overlayroot=tmpfs:recurse=0"
             if load mmc ${devnum}:${ne_part} ${kernel_addr_r} /boot/Image; then
                 if load mmc ${devnum}:${ne_part} ${fdt_addr_r} /boot/dtb/allwinner/sun50i-h618-orangepi-zero3.dtb; then
                     if load mmc ${devnum}:${ne_part} ${ramdisk_addr_r} /boot/uInitrd; then
