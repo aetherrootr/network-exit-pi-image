@@ -23,118 +23,13 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
-    outputs:
-      source_sha: ${{ steps.source.outputs.sha }}
-    env:
-      VERSION: ${{ github.event_name == 'push' && github.ref_name || (inputs.publish_release && inputs.release_tag || format('build-{0}-{1}', github.run_number, github.run_attempt)) }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Record checked out commit
-        id: source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Validate requested release version
-        if: github.event_name == 'push' || inputs.publish_release
-        env:
-          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
-        run: |
-          [[ $RELEASE_TAG =~ ^v[0-9][A-Za-z0-9._-]{0,78}$ ]] || {
-            echo 'Publishing requires a version tag, such as v0.1.0.' >&2
-            exit 1
-          }
-      - name: Install builder dependencies
-        run: |
-          sudo apt-get update
-          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y netplan.io python3-venv ddclient xz-utils util-linux fdisk e2fsprogs python3 curl coreutils nftables iproute2 u-boot-tools rauc openssl openssh-client openssh-server sudo squashfs-tools cloud-guest-utils
-          sudo install -d -m 0755 /run/sshd
-      - name: Prepare isolated controller packager
-        run: |
-          python3 -m venv "${{ runner.temp }}/enodectl-tools"
-          "${{ runner.temp }}/enodectl-tools/bin/python" -m pip install --no-cache-dir -r stage/enodectl/build-requirements.txt -r stage/enodectl/requirements.txt
-      - name: Validate sources
-        run: |
-          sudo env NETWORK_EXIT_NETPLAN_TESTS=required NETWORK_EXIT_SHIV_TESTS=required ENODECTL_TEST_SHIV_PYTHON="${{ runner.temp }}/enodectl-tools/bin/python" NETWORK_EXIT_DDNS_TESTS=required NETWORK_EXIT_SSH_CA_TESTS=required NETWORK_EXIT_OVERLAY_TESTS=required NETWORK_EXIT_NETWORK_TESTS=required NETWORK_EXIT_OTA_TESTS=required NETWORK_EXIT_GROW_TESTS=required python3 -m unittest discover -s tests -v
-          for script in build.sh image_builder/*.sh stage/*/install.sh stage/common.sh release/burn.sh; do
-            bash -n "$script"
-          done
-          python3 -m image_builder.check_stages
-      - name: Prepare OTA signing material
-        env:
-          OTA_CERT: ${{ secrets.OTA_SIGNING_CERT }}
-          OTA_KEY: ${{ secrets.OTA_SIGNING_KEY }}
-        run: |
-          set -euo pipefail
-          umask 077
-          [[ -n $OTA_CERT && -n $OTA_KEY ]] || { echo 'Configure OTA_SIGNING_CERT and OTA_SIGNING_KEY before building both packages.' >&2; exit 1; }
-          printf '%s\n' "$OTA_CERT" > "$RUNNER_TEMP/ota-cert.pem"
-          printf '%s\n' "$OTA_KEY" > "$RUNNER_TEMP/ota-key.pem"
-          openssl x509 -in "$RUNNER_TEMP/ota-cert.pem" -noout
-      - name: Download fresh Armbian image and build fully preinstalled ARM64 image
-        run: |
-          set -euo pipefail
-          source_dir=$(mktemp -d "$RUNNER_TEMP/network-exit-source.XXXXXXXX")
-          trap 'rm -rf -- "$source_dir"' EXIT
-          base=$(python3 -m image_builder.fetch_base --output-dir "$source_dir")
-          sudo bash build.sh "$base" "$VERSION" "$RUNNER_TEMP/ota-cert.pem"
-          sudo chown -R "$(id -u):$(id -g)" output
-      - name: Package factory image and signed OTA bundle
-        run: python3 package-release.py --version "$VERSION" --certificate "$RUNNER_TEMP/ota-cert.pem" --key "$RUNNER_TEMP/ota-key.pem"
-      - name: Verify release payload
-        run: |
-          bundle="output/bundle/network-exit-factory-${VERSION}-orangepizero3"
-          "$bundle/burn.sh" --verify-only
-          (cd "$bundle" && sha256sum -c SHA256SUMS)
-          sudo rauc info --keyring="$RUNNER_TEMP/ota-cert.pem" "output/network-exit-ota-${VERSION}-orangepizero3.raucb"
-      - uses: actions/upload-artifact@v6
-        with:
-          name: image-packages
-          path: |
-            output/network-exit-factory-*.tar.gz
-            output/network-exit-factory-*.tar.gz.sha256
-            output/network-exit-ota-*.raucb
-            output/network-exit-ota-*.raucb.sha256
-            output/build.json
-            output/package-manifest.tsv
-            output/source-image.sha256
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Collect stage logs from root-owned workspaces
-        if: always()
-        run: |
-          log_dir="$RUNNER_TEMP/build-stage-logs"
-          mkdir -p "$log_dir"
-          sudo python3 - "$PWD/work" "$log_dir" <<'LOGS'
-          from pathlib import Path
-          import shutil, sys
-          for workspace in Path(sys.argv[1]).glob('build.*'):
-              if not workspace.is_dir():
-                  continue
-              destination = Path(sys.argv[2]) / workspace.name
-              destination.mkdir(mode=0o755, exist_ok=True)
-              for source in [workspace / 'stages.tsv', *sorted((workspace / 'logs').glob('*.log'))]:
-                  if source.is_file():
-                      target = destination / source.name
-                      shutil.copyfile(source, target)
-                      target.chmod(0o644)
-          LOGS
-
-      - name: Save build stage logs
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: build-stage-logs
-          path: ${{ runner.temp }}/build-stage-logs
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Remove temporary signing files
-        if: always()
-        run: rm -f -- "$RUNNER_TEMP/ota-key.pem" "$RUNNER_TEMP/ota-cert.pem"
+    uses: ./.github/workflows/build-image.yml
+    with:
+      version: ${{ github.event_name == 'push' && github.ref_name || (inputs.publish_release && inputs.release_tag || format('build-{0}-{1}', github.run_number, github.run_attempt)) }}
+      release: ${{ github.event_name == 'push' || inputs.publish_release }}
+    secrets:
+      OTA_SIGNING_CERT: ${{ secrets.OTA_SIGNING_CERT }}
+      OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
 
   release:
     if: github.event_name == 'push' || inputs.publish_release

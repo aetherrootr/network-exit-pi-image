@@ -1,0 +1,19 @@
+name: Prebuild PR image
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-image-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  prebuild:
+    uses: ./.github/workflows/build-image.yml
+    with:
+      version: ${{ format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.run_number, github.run_attempt) }}
+      test_signing: true

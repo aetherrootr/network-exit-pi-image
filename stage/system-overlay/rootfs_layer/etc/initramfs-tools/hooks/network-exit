@@ -6,12 +6,16 @@ case "$1" in prereqs) prereqs; exit 0;; esac
 . /usr/share/initramfs-tools/hook-functions
 manual_add_modules overlay
 copy_exec /usr/sbin/blkid /sbin/blkid
-# Keep the full utilities even if the BusyBox hook already linked an applet.
-# In particular, restored account records require --reference support.
-for utility in grep sed awk chmod chown; do
+# Replace the existing klibc applet links with the full tools. copy_exec
+# includes the shared libraries but intentionally does not overwrite a file.
+for utility in bash grep sed cat cp mkdir mv rm rmdir tr chmod chown touch uname \
+    stat head sha512sum mktemp readlink mount umount; do
     rm -f "$DESTDIR/usr/bin/$utility"
     copy_exec "/usr/bin/$utility" "/bin/$utility"
 done
+rm -f "$DESTDIR/usr/bin/awk" "$DESTDIR/usr/bin/sh"
+copy_exec /usr/bin/gawk /bin/awk
+ln -s bash "$DESTDIR/usr/bin/sh"
 # Keep the memory policy available before switching to the real root.
 mkdir -p "$DESTDIR/lib/network-exit"
 cp /usr/lib/network-exit/overlay-limit.sh "$DESTDIR/lib/network-exit/overlay-limit.sh"
