@@ -8,5 +8,6 @@
 build_stage() {
 # Both root slots include their matching kernel, DTB, initramfs and boot script.
 dd if="$image" of="$slot_image" bs=1M skip=4 status=none conv=sparse
-python3 -m image_builder.assemble_factory --base "$image" --rootfs "$slot_image" --output "$factory" --components
+# Use the original verified base prefix captured before any package upgrades.
+python3 -m image_builder.assemble_factory --base "$build_dir/boot-prefix" --rootfs "$slot_image" --output "$factory" --components
 }
