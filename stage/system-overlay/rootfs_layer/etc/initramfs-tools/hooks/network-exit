@@ -6,12 +6,13 @@ case "$1" in prereqs) prereqs; exit 0;; esac
 . /usr/share/initramfs-tools/hook-functions
 manual_add_modules overlay
 copy_exec /usr/sbin/blkid /sbin/blkid
-# Keep the full utilities even if the BusyBox hook already linked an applet.
-# In particular, restored account records require --reference support.
-for utility in grep sed awk chmod chown; do
-    rm -f "$DESTDIR/usr/bin/$utility"
-    copy_exec "/usr/bin/$utility" "/bin/$utility"
-done
+copy_exec /usr/bin/grep /bin/grep
+copy_exec /usr/bin/sed /bin/sed
+copy_exec /usr/bin/awk /bin/awk
+# BusyBox ash can resolve chmod/chown to applets even when GNU binaries
+# are on PATH. Private paths guarantee support for --reference.
+copy_exec /usr/bin/chmod /lib/network-exit/chmod
+copy_exec /usr/bin/chown /lib/network-exit/chown
 # Keep the memory policy available before switching to the real root.
 mkdir -p "$DESTDIR/lib/network-exit"
 cp /usr/lib/network-exit/overlay-limit.sh "$DESTDIR/lib/network-exit/overlay-limit.sh"

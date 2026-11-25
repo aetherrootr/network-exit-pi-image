@@ -49,8 +49,8 @@ for config in /boot/config-*; do
     test -x /scripts/init-bottom/zz-network-exit-state
     test -x /scripts/init-bottom/zzz-enode-connectivity
     touch /enodectl-verify-reference /enodectl-verify-target
-    chmod --reference=/enodectl-verify-reference /enodectl-verify-target
-    chown --reference=/enodectl-verify-reference /enodectl-verify-target
+    /lib/network-exit/chmod --reference=/enodectl-verify-reference /enodectl-verify-target
+    /lib/network-exit/chown --reference=/enodectl-verify-reference /enodectl-verify-target
     echo 'Initramfs shell and utilities verified'
 VERIFY_INITRAMFS
   rm -rf "$initramfs_dir"
