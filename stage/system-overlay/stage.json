@@ -7,7 +7,8 @@
     "base-system"
   ],
   "packages": [
-    "overlayroot"
+    "overlayroot",
+    "busybox-static"
   ],
   "service": {
     "name": "system-overlay",

@@ -29,8 +29,32 @@ rm -f /run/enodectl-ssh-policy-test /run/enodectl-ssh-policy-test.pub /run/enode
 for config in /boot/config-*; do
   kernel=${config##*/config-}
   update-initramfs -u -k "$kernel"
-  # Read the complete listing under pipefail; grep -q can SIGPIPE lsinitramfs.
-  lsinitramfs "/boot/initrd.img-$kernel" | grep -E '^(usr/)?lib/network-exit/overlay-limit.sh$' >/dev/null
+  # Execute the tools from the actual generated ARM64 archive. A file listing
+  # alone misses missing applets, broken symlinks and unsupported shell syntax.
+  initramfs_dir=$(mktemp -d /run/enodectl-initramfs.XXXXXX)
+  trap 'rm -rf "$initramfs_dir"' EXIT
+  unmkinitramfs "/boot/initrd.img-$kernel" "$initramfs_dir"
+  initramfs_root=$initramfs_dir
+  if [[ -d $initramfs_dir/main ]]; then initramfs_root=$initramfs_dir/main; fi
+  chroot "$initramfs_root" /bin/sh -e <<'VERIFY_INITRAMFS'
+    export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+    test "$(/bin/sh -c 'trap "echo ok" EXIT')" = ok
+    for utility in busybox grep sed awk chmod chown blkid mount modprobe cp mkdir mv tr touch; do
+      command -v "$utility" >/dev/null
+    done
+    printf "nodev\toverlay\n" | grep -q "$(printf "\t")overlay$"
+    printf "test\n" | grep -Eq "^test$"
+    test -r /lib/network-exit/overlay-limit.sh
+    test -x /scripts/init-bottom/overlayroot
+    test -x /scripts/init-bottom/zz-network-exit-state
+    test -x /scripts/init-bottom/zzz-enode-connectivity
+    touch /enodectl-verify-reference /enodectl-verify-target
+    chmod --reference=/enodectl-verify-reference /enodectl-verify-target
+    chown --reference=/enodectl-verify-reference /enodectl-verify-target
+    echo 'Initramfs shell and utilities verified'
+VERIFY_INITRAMFS
+  rm -rf "$initramfs_dir"
+  trap - EXIT
 done
 sh -n /usr/lib/network-exit/overlay-limit.sh
 sh -n /etc/initramfs-tools/hooks/network-exit
