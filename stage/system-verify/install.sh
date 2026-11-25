@@ -40,7 +40,7 @@ for config in /boot/config-*; do
     export PATH=/usr/sbin:/usr/bin:/sbin:/bin
     test "$(/bin/sh -c 'trap "echo ok" EXIT')" = ok
     for utility in busybox grep sed awk chmod chown blkid mount modprobe cp mkdir mv tr touch; do
-      command -v "$utility" >/dev/null
+      command -v "$utility" || { echo "Missing initramfs utility: $utility" >&2; exit 1; }
     done
     printf "nodev\toverlay\n" | grep -q "$(printf "\t")overlay$"
     printf "test\n" | grep -Eq "^test$"
