@@ -1,6 +1,20 @@
 {
   "source_file": "Armbian_community_26.11.0-trunk.137_Orangepizero3_trixie_current_6.18.64_minimal.img.xz",
   "source_sha256": "814ec9036dc5e42eb054ff4a89d628e49782119c383bb38605005285222cf7dc",
+  "base_image_rollback": {
+    "previous_inspected_source": "26.11.0-trunk.137",
+    "observed_failure": "BL31 PSCI initialization panic: core 1 did not power down on a 1 GiB Orange Pi Zero 3 before U-Boot proper",
+    "suspected_upstream_change": "https://github.com/armbian/build/pull/11317",
+    "replacement_source_file": "Armbian_community_26.11.0-trunk.130_Orangepizero3_trixie_current_6.18.63_minimal.img.xz",
+    "replacement_source_sha256": "37a5d57d02b215ed8a94a183abf08d8c46a9752b2dae595e904eb6a602033b19",
+    "replacement_partition_start_sectors": 8192,
+    "replacement_partition_size_sectors": 3244032,
+    "replacement_bootloader_build_date": "2026-11-12",
+    "stock_image_boot_test_date": "2026-11-26",
+    "stock_image_full_card_readback_verified": true,
+    "stock_image_boot_confirmed_by_operator": true,
+    "rebuilt_factory_image_hardware_tested": false
+  },
   "partition_start_sectors": 8192,
   "partition_size_sectors": 3252224,
   "sector_size": 512,
