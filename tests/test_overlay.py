@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = source_path('usr/lib/network-exit/overlay-limit.sh')
+MOUNT_CONFIG = source_path('etc/initramfs-tools/conf.d/90-enodectl-overlay')
 
 
 def run(*command, **kwargs):
@@ -38,9 +39,14 @@ def isolated_checks(parent_namespace, directory):
         mount('-t', 'overlay', 'overlayroot', '-o',
               f'lowerdir={lower},upperdir={upper}/overlay,workdir={upper}/work', merged)
         mount('--move', upper, merged / 'media/root-rw')
-        result = run('sh', '-c', '. "$1"; limit_root_overlay "$2" "$3"',
-                     'fixture', str(POLICY), str(merged), str(meminfo))
+        result = run('sh', '-c', '. "$1"; mount -o remount,ro "$2"',
+                     'fixture', str(MOUNT_CONFIG), str(merged))
         if result.returncode: raise RuntimeError(result.stdout + result.stderr)
+        assert os.statvfs(merged).f_flag & os.ST_RDONLY
+        result = run('sh', '-c', '. "$1"; . "$2"; limit_root_overlay "$3" "$4" && mount -o remount,rw "$3"',
+                     'fixture', str(MOUNT_CONFIG), str(POLICY), str(merged), str(meminfo))
+        if result.returncode: raise RuntimeError(result.stdout + result.stderr)
+        assert not os.statvfs(merged).f_flag & os.ST_RDONLY
         mount('--bind', state, merged / 'var/lib/network-exit')
     def stop():
         for path in [merged / 'var/lib/network-exit']:

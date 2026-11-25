@@ -1,2 +1,5 @@
 # The network-exit hook supplies GNU Bash and the required GNU utilities.
 BUSYBOX=n
+# OverlayFS rejects the new libmount reconfigure API when remounting ro/rw.
+# Use the classic mount(2) API during early boot, as verified on Orange Pi Zero 3.
+export LIBMOUNT_FORCE_MOUNT2=always

@@ -38,6 +38,8 @@ for config in /boot/config-*; do
   if [[ -d $initramfs_dir/main ]]; then initramfs_root=$initramfs_dir/main; fi
   chroot "$initramfs_root" /bin/sh -e <<'VERIFY_INITRAMFS'
     export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+    . /conf/conf.d/90-enodectl-overlay
+    test "$LIBMOUNT_FORCE_MOUNT2" = always
     test -n "$BASH_VERSION"
     test "$(/bin/sh -c 'trap "echo ok" EXIT')" = ok
     if command -v busybox; then echo 'Unexpected BusyBox in initramfs' >&2; exit 1; fi
