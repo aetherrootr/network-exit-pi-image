@@ -31,7 +31,7 @@ def isolated_checks(parent_namespace, directory):
     (lower / 'base-marker').write_text('read-only system')
     (state / 'identity').write_text('persistent device')
     meminfo = base / 'meminfo'
-    meminfo.write_text('MemTotal: 65536 kB\n')  # An 8 MiB cap keeps the test small.
+    meminfo.write_text('MemTotal: 24576 kB\n')  # An 8 MiB cap keeps the test small.
     def start():
         mount('-t', 'tmpfs', 'tmpfs-root', upper)
         (upper / 'overlay').mkdir()
@@ -105,8 +105,9 @@ limit_root_overlay "$2" "$3" "$4"
             return result, calls
 
     def test_limits_scale_with_detected_memory_and_have_an_absolute_ceiling(self):
-        for total, budget in [(262144, 32768), (524288, 65536), (1048576, 131072),
-                              (2097152, 131072), (4194304, 131072), (500001, 62500)]:
+        for total, budget in [(262144, 87380), (524288, 174760), (786432, 262144),
+                              (993152, 262144), (1048576, 262144), (2097152, 262144),
+                              (4194304, 262144), (500001, 166664)]:
             with self.subTest(total=total):
                 result, calls = self.apply(f'MemTotal: {total} kB\nMemFree: 100 kB\n')
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -128,7 +129,7 @@ limit_root_overlay "$2" "$3" "$4"
     def test_remount_failure_is_propagated(self):
         result, calls = self.apply('MemTotal: 524288 kB\n', exit_code=1)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('remount,size=65536k', calls)
+        self.assertIn('remount,size=174760k', calls)
         self.assertNotIn('Root overlay limits:', result.stdout)
 
     def test_kernel_limits_and_fresh_upper_preserve_separate_state(self):

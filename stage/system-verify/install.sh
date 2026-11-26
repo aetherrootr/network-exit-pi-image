@@ -6,6 +6,11 @@ set -euo pipefail
   exit 2
 }
 source "${ENODECTL_STAGE_ROOT:?}/common.sh"
+# Prevent vendor package-update checks and binary APT caches from exhausting
+# the bounded writable root at boot, even when no packages are installed.
+test ! -e /etc/cron.d/armbian-updates
+apt-config dump | grep -Fx 'Dir::Cache::pkgcache "";'
+apt-config dump | grep -Fx 'Dir::Cache::srcpkgcache "";'
 # The builder mounts a fresh /run, including when openssh-server was already
 # installed in the base image. sshd -T still requires its privilege-separation dir.
 install -d -m 755 /run/sshd
