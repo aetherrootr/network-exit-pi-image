@@ -14,4 +14,4 @@ def save(values):
     publish('cloudflared', {path: token + '\n'})
     if components.choices().get('cloudflared'):
         return 'Cloudflare Tunnel token saved; service restarted. Check status and View logs to verify registration.'
-    return 'Token saved, but the tunnel is disabled. Return to the dashboard, Stage toggle Cloudflare Tunnel ON and Apply changes.'
+    return 'Token saved, but the tunnel is disabled. Set Startup ON and apply to start it.'

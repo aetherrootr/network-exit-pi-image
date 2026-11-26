@@ -24,7 +24,7 @@ def status(name):
     spec = components.service_spec(name)
     enabled = spec.get('mandatory') or components.choices().get(name, False)
     lines = [spec['label'], 'Saved startup choice: ' + ('enabled' if enabled else 'disabled')]
-    if not enabled: lines.append('Configuration may be saved, but the service is not started. Enable it in the dashboard and Apply changes.')
+    if not enabled: lines.append('Configuration may be saved, but the service is not started. Set Startup ON and apply in its configuration page.')
     for unit in units(name):
         code, output = query(['systemctl', 'show', '--no-pager', '--property=LoadState,ActiveState,SubState,Result,ExecMainStatus,NRestarts,UnitFileState', unit])
         lines += ['', unit, output or f'Status unavailable (exit {code})']

@@ -255,22 +255,30 @@ class FormScreen(Screen):
     FormScreen Input, FormScreen Select { border: ascii $accent; }
     FormScreen TextArea { height: 14; border: ascii $accent; }
     FormScreen #form-result { height: auto; max-height: 5; }
+    FormScreen #startup-state { width: 1fr; height: 3; content-align: left middle; }
     FormScreen Horizontal { height: 3; }
     '''
 
-    def __init__(self, title, fields, load, save, details=None, help_text='', result_dialog=False, logs=None):
+    def __init__(self, title, fields, load, save, details=None, help_text='', result_dialog=False, logs=None, service_name=None):
         super().__init__()
         self.title, self.fields = title, fields
         self.loader, self.saver, self.detailer = load, save, details
         self.help_text = help_text
         self.result_dialog = result_dialog
         self.log_loader = logs
+        self.service_name = service_name
+        self.startup_enabled = None
         self.busy = False
         self.loaded = {}
 
     def compose(self):
         yield Static(Text(self.title), id='form-title')
         yield Static(Text(self.help_text), id='form-help')
+        if self.service_name:
+            with Horizontal():
+                yield Static('Saved startup: loading...', id='startup-state')
+                yield FormSelect((('OFF - disabled', False), ('ON - enabled', True)), value=False,
+                                 allow_blank=False, id='form-startup', disabled=True)
         with NonFocusableScroll(id='fields'):
             for field in self.fields:
                 yield from self.before_field(field)
@@ -301,6 +309,15 @@ class FormScreen(Screen):
     def set_busy(self, value):
         self.busy = value
         for button in self.query(Button): button.disabled = value
+        if self.service_name:
+            self.query_one('#form-startup', Select).disabled = value or self.startup_enabled is None
+
+    def refresh_startup(self):
+        if not self.service_name: return
+        import components
+        self.startup_enabled = bool(components.choices().get(self.service_name))
+        self.query_one('#startup-state', Static).update('Saved startup: ' + ('ON' if self.startup_enabled else 'OFF'))
+        self.query_one('#form-startup', Select).value = self.startup_enabled
 
     def values(self):
         result = {}
@@ -309,7 +326,8 @@ class FormScreen(Screen):
             result[field.name] = widget.text if isinstance(widget, TextArea) else widget.value
         return result
 
-    def has_unsaved(self): return self.values() != self.loaded
+    def has_unsaved(self):
+        return self.values() != self.loaded or (self.service_name and self.query_one('#form-startup', Select).value != self.startup_enabled)
 
     def fill(self, values):
         for field in self.fields:
@@ -319,6 +337,7 @@ class FormScreen(Screen):
             elif isinstance(widget, Select): widget.value = value
             else: widget.value = str(value)
         self.loaded = self.values()
+        self.refresh_startup()
         self.query_one('#form-result', Static).update('Saved settings loaded. Changes apply only after confirmation.')
         self.set_busy(False)
 
@@ -338,7 +357,11 @@ class FormScreen(Screen):
         if self.busy: return
         if event.button.id == 'form-save':
             values = self.values()
-            self.app.push_screen(Confirm('Apply ' + self.title + '?\nThis may restart the enabled service or change connectivity.'),
+            message = 'Apply ' + self.title + '?\nThis may restart the enabled service or change connectivity.'
+            if self.service_name:
+                enabled = self.query_one('#form-startup', Select).value
+                message += '\nStartup: ' + ('ON - enable and start service' if enabled else 'OFF - save settings without running service')
+            self.app.push_screen(Confirm(message),
                                  lambda yes: self.start_apply(values) if yes else None)
         elif event.button.id == 'form-details':
             # Open immediately. Status is read-only and must never block Back
@@ -351,18 +374,27 @@ class FormScreen(Screen):
 
     def start_apply(self, values):
         if self.busy: return
+        startup = bool(self.query_one('#form-startup', Select).value) if self.service_name else None
         self.set_busy(True)
         self.query_one('#form-result', Static).update('Applying configuration...')
-        self.apply_values(values)
+        self.apply_values(values, startup, values != self.loaded)
 
     @work(thread=True, exclusive=True, group='form-save')
-    def apply_values(self, values):
+    def apply_values(self, values, startup=None, changed=True):
         self.app.call_from_thread(self.set_busy, True)
-        try: self.app.call_from_thread(self.applied, self.saver(values))
-        except Exception as exc: self.app.call_from_thread(self.failed, exc)
+        try:
+            if self.service_name:
+                from service_manager import apply_service_settings
+                result = apply_service_settings(self.service_name, startup, changed, lambda: self.saver(values))
+            else: result = self.saver(values)
+            self.app.call_from_thread(self.applied, result)
+        except Exception as exc:
+            if self.service_name: self.app.call_from_thread(self.refresh_startup)
+            self.app.call_from_thread(self.failed, exc)
 
     def applied(self, result):
         from service_config import TrialChange
+        self.refresh_startup()
         self.set_busy(False)
         if isinstance(result, TrialChange):
             self.app.push_screen(Confirm(result.message, seconds=result.seconds),
@@ -388,7 +420,7 @@ class FormScreen(Screen):
 
     def action_back(self):
         if self.busy: return
-        if self.values() != self.loaded:
+        if self.has_unsaved():
             self.app.push_screen(Confirm('Discard unsaved form changes?'), lambda yes: self.app.pop_screen() if yes else None)
         else: self.app.pop_screen()
 

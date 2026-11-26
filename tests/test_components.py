@@ -43,23 +43,21 @@ class InitializationTests(unittest.TestCase):
         with patch('accounts.check_account_policy'), patch('accounts.retain_admin_accounts'), \
                 patch.object(service_manager.registry,'hooks',return_value=[]), \
                 patch.object(service_manager,'ensure_management'), \
-                patch.object(components,'set_enabled',side_effect=subprocess.CalledProcessError(1,['systemctl'])):
-            with self.assertRaises(subprocess.CalledProcessError):service_manager.finish_setup()
+                patch.object(service_diagnostics,'health',side_effect=ValueError('service unhealthy')):
+            with self.assertRaisesRegex(ValueError,'service unhealthy'):service_manager.finish_setup()
         self.assertFalse((self.config/'initialized').exists())
         with patch.object(update,'STATE',self.root),patch.object(update,'LOCK',self.root/'ota.lock'), \
                 patch.object(update.os,'geteuid',return_value=0),patch.object(update,'platform',return_value=({},'A',{})):
             with self.assertRaisesRegex(ValueError,'`sudo enodectl config`'):update.install(None,{})
 
     def test_successful_setup_persists_mandatory_services_after_all_operations(self):
-        operations=[]
-        def enable(name,on):
+        def health():
             self.assertFalse((self.config/'initialized').exists())
-            operations.append((name,on))
         with patch('accounts.check_account_policy'),patch('accounts.retain_admin_accounts'), \
                 patch.object(service_manager.registry,'hooks',return_value=[]),patch.object(service_manager,'ensure_management'), \
-                patch.object(components,'set_enabled',side_effect=enable), patch.object(service_diagnostics,'health'):service_manager.finish_setup()
+                patch.object(components,'set_enabled') as enable, patch.object(service_diagnostics,'health',side_effect=health):service_manager.finish_setup()
         self.assertTrue((self.config/'initialized').exists())
-        self.assertEqual([n for n,on in operations],list(components.UNITS))
+        enable.assert_not_called()
 
     def test_profile_publish_failure_restores_files_and_invalidates_completion(self):
         path=self.config/'cloudflare-token';path.write_text('old-token\n')

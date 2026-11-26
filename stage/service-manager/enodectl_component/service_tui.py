@@ -36,12 +36,10 @@ class ServiceApp(App):
 
     def compose(self) -> ComposeResult:
         yield Static('Embedded Node Controller - Services', id='title')
-        yield Static('Select a service to configure it. * means a pending startup change; Apply changes to save it.', id='selection-info')
+        yield Static('Select a service to configure it, manage startup, or inspect its status and logs.', id='selection-info')
         yield DataTable(id='services', cursor_type='row')
         with Horizontal():
             yield Button('Configure / view', id='configure', variant='primary')
-            yield Button('Stage toggle', id='toggle')
-            yield Button('Apply changes', id='apply')
             yield Button('Refresh', id='refresh')
         yield Static('Loading service state...', id='result', markup=False)
         with Horizontal():
@@ -68,7 +66,6 @@ class ServiceApp(App):
 
     def update_buttons(self):
         row = self.records.get(self.selected, {})
-        self.query_one('#toggle', Button).disabled = self.busy or not row or bool(row.get('mandatory'))
         self.query_one('#configure', Button).disabled = self.busy or not bool(row.get('view'))
 
     def show_records(self, records):
@@ -77,7 +74,7 @@ class ServiceApp(App):
         table = self.query_one('#services', DataTable)
         table.clear()
         for row in records:
-            startup = ('ON' if row['enabled'] else 'OFF') + ('*' if row['name'] in self.model.changes() else '')
+            startup = 'ON' if row['enabled'] else 'OFF'
             table.add_row(Text(display(row['label'])), startup,
                           Text(display(row['state'])), 'Required' if row.get('mandatory') else 'Optional', key=row['name'])
         if records:
@@ -85,15 +82,14 @@ class ServiceApp(App):
             table.move_cursor(row=index)
             self.selected = records[index]['name']
         self.set_busy(False)
-        changes = self.model.changes()
-        self.query_one('#result', Static).update('Unsaved startup choices: ' + ', '.join(changes) if changes else 'Saved startup choices. Configuration forms have their own Apply confirmation.')
+        self.query_one('#result', Static).update('Saved startup choices. Change configuration or startup from the service page.')
 
     @work(thread=True, exclusive=True, group='service-read')
-    def reload_records(self, preserve=True):
+    def reload_records(self):
         self.call_from_thread(self.set_busy, True)
         try:
             if self.model is None: self.model = service_manager.ServiceModel()
-            else: self.model.refresh(preserve=preserve)
+            else: self.model.refresh()
             self.call_from_thread(self.show_records, self.model.records())
         except Exception as exc: self.call_from_thread(self.failed, exc)
 
@@ -126,33 +122,25 @@ class ServiceApp(App):
         if button == 'quit': self.action_quit()
         elif button == 'refresh': self.reload_records()
         elif button == 'configure': self.open_selected()
-        elif button == 'toggle':
-            try:
-                self.model.toggle(self.selected)
-                # The model owns staged values; this refresh reads runtime only.
-                self.reload_records()
-            except Exception as exc: self.failed(exc)
-        elif button in ('apply', 'finish'):
-            message = 'Apply selected startup changes now?' if button == 'apply' else 'Apply startup choices and confirm setup health? SSH keys and Tailscale authorization must be ready.'
-            if button == 'finish':
-                for stage in registry.stages():
-                    if stage.get('setup_notice'): message += '\n' + stage['setup_notice']
-            self.push_screen(Confirm(message), lambda yes: self.start_operation(button == 'finish') if yes else None)
+        elif button == 'finish':
+            message = 'Confirm setup health and exit? SSH keys and Tailscale authorization must be ready.'
+            for stage in registry.stages():
+                if stage.get('setup_notice'): message += '\n' + stage['setup_notice']
+            self.push_screen(Confirm(message), lambda yes: self.start_operation() if yes else None)
 
-    def start_operation(self, finish):
+    def start_operation(self):
         if self.busy: return
         self.set_busy(True)
-        self.apply_changes(finish)
+        self.apply_changes()
 
     @work(thread=True, exclusive=True, group='service-write')
-    def apply_changes(self, finish=False):
+    def apply_changes(self):
         self.call_from_thread(self.set_busy, True)
         try:
-            self.model.apply()
-            if finish: service_manager.finish_setup()
+            service_manager.finish_setup()
+            self.model.refresh()
             self.call_from_thread(self.show_records, self.model.records())
-            if finish: self.call_from_thread(self.exit, True)
-            else: self.call_from_thread(self.show_message, 'Setup confirmed.' if finish else 'Startup choices applied.')
+            self.call_from_thread(self.exit, True)
         except Exception as exc:
             self.model.refresh()
             self.call_from_thread(self.show_records, self.model.records())
@@ -166,7 +154,7 @@ class ServiceApp(App):
     def action_quit(self):
         if self.busy or getattr(self.screen, 'busy', False): return
         unsaved = any(getattr(screen, 'has_unsaved', lambda: False)() for screen in self.screen_stack)
-        if (self.model is not None and self.model.changes()) or unsaved or self.first_boot:
+        if unsaved or self.first_boot:
             self.push_screen(Confirm('Discard unapplied changes and check health before exit?'), lambda yes: self.start_exit_check() if yes else None)
         else: self.start_exit_check()
 

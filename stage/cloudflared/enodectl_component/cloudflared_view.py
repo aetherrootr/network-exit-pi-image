@@ -6,5 +6,5 @@ import service_diagnostics as diagnostics
 def screen():
     return FormScreen('Cloudflare Tunnel', [
         Field('token', 'Tunnel token (blank keeps the existing token)', 'secret'),
-    ], backend.load, backend.save, lambda: diagnostics.status('cloudflared'), logs=lambda: diagnostics.logs('cloudflared'),
-        help_text='Saving a token does not enable the tunnel. Enable it in the dashboard and Apply changes; inspect status and logs.')
+    ], backend.load, backend.save, lambda: diagnostics.status('cloudflared'), logs=lambda: diagnostics.logs('cloudflared'), service_name='cloudflared',
+        help_text='Set Startup ON and apply the token together to start the tunnel. Inspect status and logs to verify registration.')

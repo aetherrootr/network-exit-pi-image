@@ -38,17 +38,14 @@ class ServiceModelTests(unittest.TestCase):
         model=service_manager.ServiceModel()
         for row in model.records():
             if row['mandatory']:
-                with self.subTest(name=row['name']),self.assertRaises(ValueError):model.toggle(row['name'])
+                with self.subTest(name=row['name']),self.assertRaises(ValueError):service_manager.change_startup(row['name'],False)
                 with self.assertRaises(ValueError):components.set_enabled(row['name'],False)
-        self.assertTrue(model.draft['ssh']);self.assertTrue(model.draft['tailscale'])
+        self.assertTrue(model.enabled['ssh']);self.assertTrue(model.enabled['tailscale'])
 
-    def test_toggle_is_staged_and_all_enables_validate_before_changes(self):
-        model=service_manager.ServiceModel();self.run.reset_mock()
-        model.toggle('wireguard');model.toggle('cloudflared')
-        self.run.assert_not_called()
-        self.assertFalse((self.root/'components.json').exists())
-        with patch.object(components,'validate',side_effect=[None,ValueError('missing token')]):
-            with self.assertRaises(ValueError):model.apply()
+    def test_local_enable_validates_before_changes(self):
+        self.run.reset_mock()
+        with patch.object(components,'validate',side_effect=ValueError('missing token')):
+            with self.assertRaises(ValueError):service_manager.change_startup('cloudflared',True)
         self.run.assert_not_called()
         self.assertFalse((self.root/'components.json').exists())
 
@@ -63,15 +60,22 @@ class ServiceModelTests(unittest.TestCase):
     def test_failed_apply_clears_completion_and_success_rechecks_authorization(self):
         self.root.mkdir(exist_ok=True)
         marker=self.root/'initialized';marker.write_text('ready')
-        model=service_manager.ServiceModel();model.toggle('cloudflared')
         with patch.object(components,'validate'),patch.object(components,'set_enabled',side_effect=subprocess.CalledProcessError(1,['systemctl'])):
-            with self.assertRaises(subprocess.CalledProcessError):model.apply()
+            with self.assertRaises(subprocess.CalledProcessError):service_manager.change_startup('cloudflared',True)
         self.assertFalse(marker.exists())
-        marker.write_text('ready');model.toggle('cloudflared')
+        marker.write_text('ready')
         guard=Mock()
         with patch.object(components,'validate'),patch.object(components,'set_enabled'),patch.object(service_manager.registry,'hooks',return_value=[guard]),patch.object(setup_state,'complete') as complete:
-            model.apply()
+            service_manager.change_startup('cloudflared',True)
         guard.assert_called_once();complete.assert_called_once_with(self.root)
+
+    def test_failed_off_profile_save_restores_prior_startup(self):
+        (self.root/'components.json').write_text('{"cloudflared": true}')
+        def fail(): raise ValueError('invalid edited profile')
+        with patch.object(service_manager,'change_startup') as change:
+            with self.assertRaisesRegex(ValueError,'invalid edited profile'):
+                service_manager.apply_service_settings('cloudflared',False,True,fail)
+        self.assertEqual([call.args for call in change.call_args_list],[('cloudflared',False),('cloudflared',True)])
 
 
 class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
@@ -122,7 +126,7 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('right')
             self.assertEqual(app.focused.id,'configure')
             await pilot.press('right')
-            self.assertEqual(app.focused.id,'toggle')
+            self.assertEqual(app.focused.id,'refresh')
 
     async def test_choice_multiline_and_login_dialog_use_native_editing_keys(self):
         app=ServiceApp(model=service_manager.ServiceModel())
@@ -157,10 +161,10 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(110,36)) as pilot:
             await self.settle(app,pilot);await self.select(app,pilot,'cloudflared')
             self.assertEqual(app.focused.id,'services')
-            for expected in ('configure','toggle','apply','refresh'):
+            for expected in ('configure','refresh','finish','quit'):
                 navigate(app.screen,'right')
                 self.assertEqual(app.focused.id,expected)
-            for expected in ('apply','toggle','configure','services'):
+            for expected in ('finish','refresh','configure','services'):
                 navigate(app.screen,'left')
                 self.assertEqual(app.focused.id,expected)
 
@@ -289,18 +293,31 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(scan.call_count,2)
                 self.assertFalse((self.config/'connectivity/profile.json').exists())
 
-    async def test_dashboard_disables_required_toggles_and_cancel_does_not_apply(self):
+    async def test_startup_and_cloudflare_token_apply_together_on_service_page(self):
         app=ServiceApp(model=service_manager.ServiceModel())
         async with app.run_test(size=(110,36)) as pilot:
             await self.settle(app,pilot)
-            for name in ('ssh','tailscale','network','system-state'):
-                await self.select(app,pilot,name)
-                self.assertTrue(app.query_one('#toggle',Button).disabled)
+            self.assertFalse(list(app.query('#toggle')))
+            self.assertFalse(list(app.query('#apply')))
             await self.select(app,pilot,'cloudflared')
-            await pilot.click('#toggle');await self.settle(app,pilot)
-            self.assertTrue(app.model.draft['cloudflared'])
-            await pilot.click('#apply');await self.confirm(app,pilot,False)
+            await pilot.click('#configure');await self.settle(app,pilot)
+            form=app.screen
+            form.query_one('#field-token',Input).value='fixture-token'
+            form.query_one('#form-startup',Select).value=True
+            await pilot.click('#form-save');await self.confirm(app,pilot,False)
             self.assertFalse((self.config/'components.json').exists())
+            self.assertFalse((self.config/'cloudflare-token').exists())
+            await pilot.click('#form-save');await self.confirm(app,pilot)
+            self.assertTrue(components.choices()['cloudflared'])
+            self.assertEqual((self.config/'cloudflare-token').read_text(),'fixture-token\n')
+            self.assertTrue(form.query_one('#form-startup',Select).value)
+            form.query_one('#field-token',Input).value='new-token'
+            form.query_one('#form-startup',Select).value=False
+            self.run.reset_mock()
+            await pilot.click('#form-save');await self.confirm(app,pilot)
+            self.assertFalse(components.choices()['cloudflared'])
+            self.assertEqual((self.config/'cloudflare-token').read_text(),'new-token\n')
+            self.assertFalse(any('restart' in call.args[0] for call in self.run.call_args_list))
 
     async def test_cloudflare_form_keeps_secret_masked_and_only_applies_after_confirmation(self):
         app=ServiceApp(model=service_manager.ServiceModel())
@@ -366,7 +383,7 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 await self.settle(app,pilot)
                 for name in ('system-state','system-overlay','system-watchdog','system-power'):
                     await self.select(app,pilot,name)
-                    self.assertTrue(app.query_one('#toggle',Button).disabled)
+                    self.assertFalse(list(app.query('#toggle')))
                     await pilot.click('#configure');await self.settle(app,pilot)
                     self.assertIsInstance(app.screen,ReadOnlyScreen)
                     self.assertEqual([button.id for button in app.screen.query(Button)],['policy-refresh','policy-back'])
@@ -380,7 +397,7 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
         with patch('ota_update_config.save',return_value='Installed to inactive slot; reboot manually.') as install:
             async with app.run_test(size=(120,42)) as pilot:
                 await self.settle(app,pilot);await self.select(app,pilot,'ota')
-                self.assertTrue(app.query_one('#toggle',Button).disabled)
+                self.assertFalse(list(app.query('#toggle')))
                 await pilot.click('#configure');await self.settle(app,pilot)
                 form=app.screen
                 self.assertFalse(form.query_one('#field-skip_signature_verification',Select).value)

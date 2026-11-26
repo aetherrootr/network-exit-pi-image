@@ -46,4 +46,4 @@ class DiagnosticsTests(unittest.TestCase):
     def test_disabled_service_status_explains_save_vs_enable(self):
         with patch.object(diagnostics,'query',return_value=(0,'ActiveState=inactive')):
             status=diagnostics.status('cloudflared')
-        self.assertIn('disabled',status);self.assertIn('Apply changes',status)
+        self.assertIn('disabled',status);self.assertIn('Startup ON',status)
