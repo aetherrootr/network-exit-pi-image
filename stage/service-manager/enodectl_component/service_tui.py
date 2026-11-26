@@ -6,6 +6,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Button, DataTable, Static
 from enodectl_core import registry
+from enodectl_core.terminal import KeyboardDriver
 from enodectl_core.textual_ui import Confirm, Details, display, error_message, NAVIGATION_BINDINGS, navigation_enabled, navigate
 import service_manager
 
@@ -26,7 +27,7 @@ class ServiceApp(App):
     '''
 
     def __init__(self, model=None, first_boot=False):
-        super().__init__()
+        super().__init__(driver_class=KeyboardDriver)
         self.model, self.first_boot = model, first_boot
         self.records = {}
         self.selected = None
