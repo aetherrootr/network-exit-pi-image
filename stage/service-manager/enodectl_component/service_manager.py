@@ -24,7 +24,8 @@ class ServiceModel:
             for unit in service['units']:
                 try:
                     result = subprocess.run(['systemctl', 'is-active', unit], capture_output=True, text=True, timeout=10, check=False)
-                    states.append(result.stdout.strip() or 'unknown')
+                    state = result.stdout.strip() or 'unknown'
+                    states.append('on-demand' if unit not in service.get('health_units', service['units']) and state == 'inactive' else state)
                 except (OSError, subprocess.SubprocessError): states.append('unavailable')
             rows.append({**service, 'enabled': self.draft[service['name']],
                          'state': ', '.join(states) if states else 'built-in'})
@@ -71,19 +72,7 @@ def finish_setup():
     for hook in registry.hooks('before_services'): hook(chosen)
     ensure_management()
     for name in components.UNITS: components.set_enabled(name, bool(chosen.get(name)))
+    from service_diagnostics import health
+    health()
     retain_admin_accounts()
     setup_state.complete(components.CONFIG)
-
-
-def open_services(first_boot=False):
-    import os
-    from accounts import initialization_lock
-    if os.geteuid() != 0 or not os.path.ismount(components.STATE):
-        raise ValueError('Run `sudo enodectl service` on a node with STATE mounted')
-    from service_tui import ServiceApp
-    import sys
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
-        raise ValueError('The service dashboard requires an interactive terminal; connect with `ssh -t`')
-    with initialization_lock():
-        ensure_management()
-        return ServiceApp(first_boot=first_boot).run()

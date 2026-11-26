@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import components
 import service_manager
 import service_config
+import service_diagnostics
 import initialize
 import setup_state
 import singbox_setup
@@ -56,7 +57,7 @@ class InitializationTests(unittest.TestCase):
             operations.append((name,on))
         with patch('accounts.check_account_policy'),patch('accounts.retain_admin_accounts'), \
                 patch.object(service_manager.registry,'hooks',return_value=[]),patch.object(service_manager,'ensure_management'), \
-                patch.object(components,'set_enabled',side_effect=enable):service_manager.finish_setup()
+                patch.object(components,'set_enabled',side_effect=enable), patch.object(service_diagnostics,'health'):service_manager.finish_setup()
         self.assertTrue((self.config/'initialized').exists())
         self.assertEqual([n for n,on in operations],list(components.UNITS))
 
@@ -80,10 +81,10 @@ class InitializationTests(unittest.TestCase):
             self.assertEqual(calls,['accounts','required services'])
             self.assertFalse((self.config/'initialized').exists())
 
-    def test_service_command_rejects_unprivileged_or_unmounted_state(self):
+    def test_config_command_rejects_unprivileged_or_unmounted_state(self):
         for uid,mounted in ((1000,True),(0,False)):
-            with patch('os.geteuid',return_value=uid),patch('os.path.ismount',return_value=mounted):
-                with self.assertRaises(ValueError):service_manager.open_services()
+            with patch('os.geteuid',return_value=uid),patch('os.path.ismount',return_value=mounted),patch.object(initialize,'initialization_lock',nullcontext):
+                with self.assertRaises(ValueError):initialize.main()
 
     def test_private_proxy_has_unique_credentials(self):
         self.assertNotEqual(singbox_setup.private_proxy('127.0.0.1'),singbox_setup.private_proxy('127.0.0.1'))

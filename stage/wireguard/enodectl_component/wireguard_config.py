@@ -44,4 +44,9 @@ def save(values):
 def details():
     path = components.CONFIG / 'wireguard-device.key'
     if not path.exists(): return 'No device key yet. Saving the first valid peer generates one.'
-    return 'Device public key: ' + subprocess.check_output(['wg', 'pubkey'], input=wg.private(path) + '\n', text=True).strip()
+    text = 'Device public key: ' + subprocess.check_output(['wg', 'pubkey'], input=wg.private(path) + '\n', text=True, timeout=5).strip()
+    from service_diagnostics import query
+    for field in ('latest-handshakes', 'transfer'):
+        code, result = query(['wg', 'show', 'wg-home', field], timeout=3)
+        text += '\n' + field + ':\n' + (result if not code else 'Interface not running or data unavailable.')
+    return text

@@ -14,6 +14,7 @@ from textual.widgets import Button, DataTable, Input, Label, Select, Static, Tex
 import components
 import network_management
 import service_manager
+import service_diagnostics
 import network_config
 import setup_state
 import sshpub
@@ -189,6 +190,23 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('right');self.assertEqual(app.focused.id,'details-back')
             await pilot.press('enter');await pilot.pause()
             self.assertIs(app.screen,form)
+
+    async def test_cloudflare_diagnostics_are_on_its_form_and_exit_checks_health(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        with patch.object(service_diagnostics,'logs',return_value='Fixture tunnel log'), \
+                patch.object(service_diagnostics,'health',side_effect=ValueError('Cloudflare HTTPS failed')):
+            async with app.run_test(size=(110,36)) as pilot:
+                await self.settle(app,pilot);await self.select(app,pilot,'cloudflared')
+                await pilot.press('enter');await self.settle(app,pilot)
+                self.assertIsInstance(app.screen,FormScreen)
+                await pilot.click('#form-logs');await self.settle(app,pilot)
+                self.assertIn('Fixture tunnel log',app.screen.text)
+                await pilot.press('escape','escape');await self.settle(app,pilot)
+                await pilot.press('ctrl+q');await self.settle(app,pilot)
+                self.assertIn('Cloudflare HTTPS failed',app.screen.text)
+                await pilot.press('escape');await pilot.pause()
+                self.assertIsInstance(app.screen,Confirm)
+                await self.confirm(app,pilot,False)
 
     async def test_status_timeout_is_visible_and_back_still_works(self):
         app=ServiceApp(model=service_manager.ServiceModel())

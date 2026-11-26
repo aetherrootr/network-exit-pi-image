@@ -9,6 +9,7 @@ from enodectl_core import registry
 from enodectl_core.terminal import TerminalDriver
 from enodectl_core.textual_ui import Confirm, Details, display, error_message, NAVIGATION_BINDINGS, navigation_enabled, navigate
 import service_manager
+import service_diagnostics
 
 
 class ServiceApp(App):
@@ -35,7 +36,7 @@ class ServiceApp(App):
 
     def compose(self) -> ComposeResult:
         yield Static('Embedded Node Controller - Services', id='title')
-        yield Static('Select a service to edit saved settings. Required services cannot be disabled.', id='selection-info')
+        yield Static('Select a service to configure it. * means a pending startup change; Apply changes to save it.', id='selection-info')
         yield DataTable(id='services', cursor_type='row')
         with Horizontal():
             yield Button('Configure / view', id='configure', variant='primary')
@@ -44,7 +45,7 @@ class ServiceApp(App):
             yield Button('Refresh', id='refresh')
         yield Static('Loading service state...', id='result', markup=False)
         with Horizontal():
-            yield Button('Finish setup', id='finish')
+            yield Button('Finish / exit', id='finish')
             yield Button('Quit', id='quit')
         yield Static('Up/Down: service | Right: actions | Enter: configure/select | F5: refresh | Ctrl+Q: quit')
 
@@ -76,7 +77,8 @@ class ServiceApp(App):
         table = self.query_one('#services', DataTable)
         table.clear()
         for row in records:
-            table.add_row(Text(display(row['label'])), 'ON' if row['enabled'] else 'OFF',
+            startup = ('ON' if row['enabled'] else 'OFF') + ('*' if row['name'] in self.model.changes() else '')
+            table.add_row(Text(display(row['label'])), startup,
                           Text(display(row['state'])), 'Required' if row.get('mandatory') else 'Optional', key=row['name'])
         if records:
             index = next((i for i, row in enumerate(records) if row['name'] == previous), 0)
@@ -149,7 +151,7 @@ class ServiceApp(App):
             self.model.apply()
             if finish: service_manager.finish_setup()
             self.call_from_thread(self.show_records, self.model.records())
-            if finish and self.first_boot: self.call_from_thread(self.exit, True)
+            if finish: self.call_from_thread(self.exit, True)
             else: self.call_from_thread(self.show_message, 'Setup confirmed.' if finish else 'Startup choices applied.')
         except Exception as exc:
             self.model.refresh()
@@ -165,8 +167,29 @@ class ServiceApp(App):
         if self.busy or getattr(self.screen, 'busy', False): return
         unsaved = any(getattr(screen, 'has_unsaved', lambda: False)() for screen in self.screen_stack)
         if (self.model is not None and self.model.changes()) or unsaved or self.first_boot:
-            self.push_screen(Confirm('Discard unapplied changes and quit? Incomplete first-boot setup will be offered again.'), lambda yes: self.exit(False) if yes else None)
-        else: self.exit(False)
+            self.push_screen(Confirm('Discard unapplied changes and check health before exit?'), lambda yes: self.start_exit_check() if yes else None)
+        else: self.start_exit_check()
+
+    def start_exit_check(self):
+        if self.busy: return
+        self.set_busy(True)
+        self.show_message('Checking public Internet and required services before exit...')
+        self.check_exit()
+
+    @work(thread=True, exclusive=True, group='exit-health')
+    def check_exit(self):
+        try:
+            service_diagnostics.health()
+            if not (service_manager.components.CONFIG / 'initialized').exists():
+                raise ValueError('First-boot setup is incomplete. Use Finish / exit to confirm configuration.')
+            self.call_from_thread(self.exit, True)
+        except Exception as exc: self.call_from_thread(self.exit_failed, error_message(exc))
+
+    def exit_failed(self, message):
+        self.set_busy(False)
+        self.show_message('Health check failed. Correct the problems before exiting.')
+        self.push_screen(Details(message + '\n\nReturn to configuration to resolve the errors.', title='Exit health check failed'),
+                         lambda _: self.push_screen(Confirm('Exit with an error status anyway?'), lambda yes: self.exit(False) if yes else None))
 
 
 def configure():

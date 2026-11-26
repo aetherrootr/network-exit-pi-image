@@ -52,6 +52,7 @@
     "units": [
       "rauc.service"
     ],
+    "health_units": [],
     "mandatory": true,
     "kind": "system",
     "view": "ota_status_view:screen"

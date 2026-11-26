@@ -13,11 +13,6 @@ def config_run(args, parser):
     initialize.main(first_boot=args.first_boot)
 
 
-def service_run(args, parser):
-    import service_manager
-    service_manager.open_services()
-
-
 def status_run(args, parser):
     failed = False
     print('Embedded Node Controller', flush=True)

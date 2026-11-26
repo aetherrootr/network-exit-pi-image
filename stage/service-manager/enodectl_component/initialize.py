@@ -34,4 +34,5 @@ def main(first_boot=False):
             import service_manager
             from service_tui import ServiceApp
             service_manager.ensure_management()
-            ServiceApp().run()
+            if not ServiceApp().run():
+                raise ValueError('Configuration exited without passing health checks.')

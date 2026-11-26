@@ -92,7 +92,7 @@ def save(values):
     if control.preferences() != target:
         raise ValueError('Tailscale is not using the requested control plane. No automatic fallback was attempted.\n' + login_status(status))
     if url:
-        return 'Authorization is pending. After approval, use Check status and Finish setup.\n\n' + login_status(status, url)
+        return 'Authorization is pending. After approval, use Check status and Finish / exit.\n\n' + login_status(status, url)
     raise ValueError('Tailscale authorization is incomplete. The requested control plane was retained for retry.\n\n' + login_status(status))
 
 

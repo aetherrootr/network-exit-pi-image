@@ -258,12 +258,13 @@ class FormScreen(Screen):
     FormScreen Horizontal { height: 3; }
     '''
 
-    def __init__(self, title, fields, load, save, details=None, help_text='', result_dialog=False):
+    def __init__(self, title, fields, load, save, details=None, help_text='', result_dialog=False, logs=None):
         super().__init__()
         self.title, self.fields = title, fields
         self.loader, self.saver, self.detailer = load, save, details
         self.help_text = help_text
         self.result_dialog = result_dialog
+        self.log_loader = logs
         self.busy = False
         self.loaded = {}
 
@@ -285,6 +286,7 @@ class FormScreen(Screen):
         with Horizontal():
             yield Button('Apply configuration', id='form-save', variant='primary')
             if self.detailer: yield Button('Check status', id='form-details')
+            if self.log_loader: yield Button('View logs', id='form-logs')
             yield Button('Back', id='form-back')
         yield Static(NAVIGATION_HELP)
 
@@ -342,6 +344,8 @@ class FormScreen(Screen):
             # Open immediately. Status is read-only and must never block Back
             # or leave the form's controls disabled while a backend responds.
             self.app.push_screen(Details(title=self.title + ' status', loader=self.detailer))
+        elif event.button.id == 'form-logs':
+            self.app.push_screen(Details(title=self.title + ' logs', loader=self.log_loader))
         elif event.button.id == 'form-back': self.action_back()
         else: self.extra_action(event.button.id)
 

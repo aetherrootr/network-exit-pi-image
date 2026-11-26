@@ -8,11 +8,6 @@
   ],
   "commands": [
     {
-      "name": "service",
-      "help": "Manage and configure services in the Textual dashboard",
-      "handler": "controller_commands:service_run"
-    },
-    {
       "name": "config",
       "help": "Configure this node through stage-provided interactive menus",
       "register": "controller_commands:config_parser",

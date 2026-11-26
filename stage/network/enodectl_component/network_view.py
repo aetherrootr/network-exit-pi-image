@@ -6,6 +6,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Select, Static
 from enodectl_core.textual_ui import Details, Field, FormScreen, display, error_message
 import network_management as backend
+import service_diagnostics as diagnostics
 
 
 class WiFiScanScreen(ModalScreen):
@@ -131,5 +132,5 @@ def screen():
         Field('wifi_password', 'Wi-Fi password (blank keeps it for the same SSID/authentication)', 'secret'),
         Field('wifi_hidden', 'Hidden Wi-Fi SSID', 'bool'),
         Field('wifi_country', 'Wi-Fi country code, e.g. `JP`, or blank (without backticks)'),
-    ], backend.load, backend.save, backend.details,
+    ], backend.load, backend.save, backend.details, logs=lambda: diagnostics.logs('network'),
         help_text='Initial setup: Ethernet `192.168.77.1/24`; PC `192.168.77.2/24`, no gateway/DNS. Completing setup removes this temporary address; normal Ethernet uses DHCP. Wi-Fi credentials persist on STATE. Changes require a NEW SSH connection and confirmation within 90 seconds.')

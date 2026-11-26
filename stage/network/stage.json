@@ -41,6 +41,7 @@
     "units": [
       "network-exit-network.service"
     ],
+    "diagnostic_units": ["systemd-networkd.service", "systemd-resolved.service", "network-exit-uplink-refresh.service"],
     "mandatory": true,
     "kind": "system",
     "view": "network_view:screen"

@@ -6,6 +6,7 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Static
 from enodectl_core.textual_ui import Confirm, Details, Field, FormScreen, display, error_message
 from ssh_editor import SSHEditor
+import service_diagnostics as diagnostics
 
 
 class SSHScreen(Screen):
@@ -37,6 +38,8 @@ class SSHScreen(Screen):
         yield Static('Loading authorizations...', id='ssh-result', markup=False)
         with Horizontal():
             yield Button('Save authorizations', id='ssh-save', variant='primary')
+            yield Button('Check status', id='ssh-status')
+            yield Button('View logs', id='ssh-logs')
             yield Button('Back', id='ssh-back')
         yield Static('Up/Down: key | Right: actions | Enter: details/select | Esc: back')
 
@@ -100,6 +103,8 @@ class SSHScreen(Screen):
                               help_text='Keys are staged only. Private keys, certificates and imported options are rejected.')
             self.app.push_screen(form, lambda result: self.load_rows())
         elif id == 'ssh-details': self.show_selected()
+        elif id == 'ssh-status': self.app.push_screen(Details(title='SSH status', loader=lambda: diagnostics.status('ssh')))
+        elif id == 'ssh-logs': self.app.push_screen(Details(title='SSH logs', loader=lambda: diagnostics.logs('ssh')))
         elif id == 'ssh-remove' and self.selected:
             selected = self.selected
             self.app.push_screen(Confirm('Stage removal of this authorization?\n' + self.records[selected]['fingerprint']),

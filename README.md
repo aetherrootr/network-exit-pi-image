@@ -21,7 +21,7 @@ The device provides automatic first-boot setup through a Textual terminal interf
 ssh pi@DEVICE_ADDRESS
 ```
 
-The first interactive `pi` login automatically opens setup; no setup command is required. The OS password program first sets the root recovery password. The Textual dashboard then opens for Tailscale authorization, SSH access and optional components. Configure the selected services, apply their startup choices, and choose `Finish setup`. Completion requires local Tailscale authorization, SSH access and successful service operations. After successful setup, the same SSH session continues to a normal shell. Interrupted or failed setup is offered again at the next interactive login. Completed setup is recorded on STATE, so reboot and compatible OTA updates do not repeat it.
+The first interactive `pi` login automatically opens setup; no setup command is required. The OS password program first sets the root recovery password. The Textual dashboard then opens for Tailscale authorization, SSH access and optional components. Configure the selected services, apply their startup choices, and choose `Finish / exit`. Completion requires local Tailscale authorization, SSH access and successful service operations. After successful setup, the same SSH session continues to a normal shell. Interrupted or failed setup is offered again at the next interactive login. Completed setup is recorded on STATE, so reboot and compatible OTA updates do not repeat it.
 
 If the provisioned login key is unavailable, connect a local display/keyboard or serial console and press `Enter` at the first-boot setup prompt. The console runs the same wizard before normal login and offers a retry if setup fails, including when the root recovery password was saved but network setup is incomplete. Waiting for `Enter` prevents an unattended console from claiming the setup lock ahead of SSH. Only one setup session may run at a time. The installed `passwd` program owns root password input; the password never enters command arguments or logs. Password/account records are persisted on STATE immediately.
 
@@ -43,7 +43,7 @@ The first-boot wizard authorizes the Tailscale client through the selected contr
 
 The Tailscale client supports either the official Tailscale control plane or an operator-managed Headscale server. During first-boot setup, select `official` (the first-setup default) or `headscale`, then supply its HTTPS origin, for example `https://headscale.example.com:8443`. The URL must use a certificate trusted by the device and cannot contain credentials, a path, query or fragment. No TLS verification bypass is provided. Authorization follows the selected server's interactive registration flow; this repository does not deploy or administer the Headscale server.
 
-The selected provider and URL are saved in `/etc/network-exit/tailscale-control.json` on STATE with mode 600. The client's own preferences and identity persist in its STATE-backed data directory. Ordinary boot starts `tailscaled` using that state; it does not log in again or contact a different control plane on failure. Reopening configuration loads the saved choice. Older initialized devices without this new file default to the control server read from the local client preferences, including existing Headscale connections. Applying a login that needs authorization displays its URL in a scrollable dialog; open it on an operator computer, then use `Check status` and `Finish setup` after authorization succeeds. If the URL is not yet available, the dialog includes the client's reported health errors (such as DNS failure). A direct setup-only Ethernet connection is not an Internet uplink; configure Wi-Fi or connect Ethernet to a network providing DHCP, DNS and Internet access before requesting authorization.
+The selected provider and URL are saved in `/etc/network-exit/tailscale-control.json` on STATE with mode 600. The client's own preferences and identity persist in its STATE-backed data directory. Ordinary boot starts `tailscaled` using that state; it does not log in again or contact a different control plane on failure. Reopening configuration loads the saved choice. Older initialized devices without this new file default to the control server read from the local client preferences, including existing Headscale connections. Applying a login that needs authorization displays its URL in a scrollable dialog; open it on an operator computer, then use `Check status` and `Finish / exit` after authorization succeeds. If the URL is not yet available, the dialog includes the client's reported health errors (such as DNS failure). A direct setup-only Ethernet connection is not an Internet uplink; configure Wi-Fi or connect Ethernet to a network providing DHCP, DNS and Internet access before requesting authorization.
 
 Switching an existing identity between control servers requires explicit confirmation, defaults to cancellation, and uses `--force-reauth`. It can disconnect a Tailscale-carried SSH session, so use an independent LAN/console session for a switch. Selecting `official` explicitly supplies the official server URL, rather than retaining a previous Headscale URL. Failed or interrupted authorization leaves initialization incomplete and retains the requested URL for retry; it never automatically falls back to the other provider. Confirmed authorization requires the local client to be Running on the selected control server. Both providers use ordinary OpenSSH (`--ssh=false`); approve any advertised exit routes and access policies on the selected control plane.
 
@@ -54,7 +54,7 @@ Every initialized device has its own identities and secrets. Factory images cont
 Manage service configuration and startup choices through the Textual dashboard:
 
 ```bash
-sudo enodectl service
+sudo enodectl config
 sudo enodectl status
 sudo enodectl watchdog status
 ```
@@ -63,14 +63,16 @@ Select a row and choose `Configure / view` to edit its current configuration or 
 
 The dashboard shows saved startup choices and current systemd runtime states. `Stage toggle` changes an optional service's draft choice; confirmed `Apply changes` starts/stops it and persists the choice. Refresh preserves unapplied startup choices. SSH, Tailscale and system components cannot be disabled through either the UI or backend. Fixed policy pages are read-only; the OTA page also exposes explicit signed installation and recovery actions. Enabling validates every newly selected service before performing changes. Failed operations reload saved choices and runtime status; earlier operations may already have completed. An apply failure leaves setup incomplete until retried and confirmed healthy.
 
+A `*` next to ON/OFF marks an unapplied startup choice. Detailed status and recent current-boot logs are available in each service's configuration page, not the dashboard. Saving a Cloudflare token alone does not start its tunnel; enable it and apply startup changes, then inspect its registration logs. Exit health checks require a successful HTTPS request to Cloudflare's public site, Tailscale authorization and active required/selected service units. RAUC is on-demand and need not remain active. A failed check displays errors; explicitly exiting despite them returns an error rather than reporting successful setup.
+
 `sudo enodectl config` opens the same dashboard after initial account setup. The old `config ssh`, `config service` and `config network` routes are removed. Use Up/Down to select a service or move between fields, Enter to open the selected service, and Right to reach the action buttons. Left/Right selects buttons, cycles choices, or moves the cursor in a single-line field. Enter opens a choice menu, advances a single-line field or activates a button; use the arrow keys and Enter inside choice menus. For multiline JSON, Enter starts editing and Escape returns to navigation. Escape returns from screens, F5 refreshes the dashboard, and Ctrl+Q quits. No Tab navigation is required. Mouse clicks, scrolling and dragging use SGR reporting without continuous hover traffic; malformed UTF-8 input bytes are discarded without ending the input thread or corrupting valid UTF-8 characters. Check status opens a responsive dialog immediately, offers refresh and Back, and reports a timeout instead of blocking navigation. A terminal around 110 columns by 36 rows is recommended. Textual and its Python dependencies are bundled in the shiv archive during the build; no device-side pip/download is needed. ARM64 runtime and memory use still require board testing.
 
-Optional components are `wireguard`, `cloudflared`, `singbox` and `ddns`. A previously unconfigured component needs its settings before it can be enabled. Changes to administrator accounts or the root recovery password should be followed by `Finish setup` to save their records. Keep the pi password locked.
+Optional components are `wireguard`, `cloudflared`, `singbox` and `ddns`. A previously unconfigured component needs its settings before it can be enabled. Changes to administrator accounts or the root recovery password should be followed by `Finish / exit` to save their records. Keep the pi password locked.
 
 ## Network policy and optional firewall
 
 ```bash
-sudo enodectl service
+sudo enodectl config
 ```
 
 Select `Network / Wi-Fi / firewall`, then `Configure / view`. This form manages the broadband interface, optional host firewall, SSH source networks, additional inbound TCP/UDP ports and persistent Wi-Fi. `Check status` displays addresses, IPv4/IPv6 routes and resolver settings. It uses the base image's Netplan/systemd-networkd stack with wpa_supplicant; all dependencies and firmware are preinstalled. Ethernet and Wi-Fi use DHCP for addresses, DNS and default routes. Static-address/custom-DNS editing is not part of this form. Forwarding follows configured WireGuard/Tailscale exit capabilities instead of a separate unrestricted router switch.
@@ -84,7 +86,7 @@ The sequence is: flash with an SSH public key -> direct Ethernet connection -> c
 1. Flash with `--ssh-key FILE`, connect an Ethernet cable between the computer and node, and power on the node. Set the computer's Ethernet IPv4 address to `192.168.77.2`, netmask `255.255.255.0`, with no gateway or DNS on that connection. The computer can retain Wi-Fi for its own Internet access.
 2. Run `ssh -t pi@192.168.77.1`. The first login opens setup automatically. Open `Network / Wi-Fi / firewall` -> `Configure / view` to configure Wi-Fi if desired. Wired mDNS at `enode.local` is a convenience when supported by the computer; it is not required for the fixed-address setup path.
 3. Enable Wi-Fi, use `auto` for a single radio or enter its interface name, and fill in the SSID, WPA2 Personal or WPA3 Personal authentication, password and optional hidden-network/country settings. For example, use `JP` for a deployment in Japan. The selected radio/driver must support the chosen authentication mode. Passwords are masked; a blank password retains the saved secret only for the same SSID and authentication mode.
-4. Apply the form and keep the Ethernet cable connected. Before the 90-second trial expires, test a NEW SSH connection through the Wi-Fi address or an already authorized Tailscale connection, then confirm. Cancellation, timeout or reboot restores the previous network/Wi-Fi configuration. Complete Tailscale authorization and choose `Finish setup` once Internet access is available.
+4. Apply the form and keep the Ethernet cable connected. Before the 90-second trial expires, test a NEW SSH connection through the Wi-Fi address or an already authorized Tailscale connection, then confirm. Cancellation, timeout or reboot restores the previous network/Wi-Fi configuration. Complete Tailscale authorization and choose `Finish / exit` once Internet access is available.
 5. After successful setup, the background network controller retires `192.168.77.1` on its next check. That SSH connection can disconnect. Reconnect through the router-assigned DHCP address, configured Wi-Fi or Tailscale. A permanent STATE provisioning marker prevents a later configuration failure from reopening the factory static address. Reboots of initialized devices start directly in DHCP mode.
 
 Wi-Fi settings and their generated Netplan file live under STATE's private `config/connectivity/` directory (0700, files 0600). `/etc/netplan/90-enode-wifi.yaml` points into this persisted configuration. A network-owned initramfs hook selects the initial-static or ordinary-DHCP wired profile and restores unconfirmed Wi-Fi changes before PID 1's Netplan generator runs. RAM OverlayFS resets and compatible OTA updates retain the confirmed Wi-Fi profile. Wi-Fi is a client connection to an existing access point; there is no captive portal or Wi-Fi hotspot. An older fallback system image that predates this feature retains its original Ethernet-only behavior.
@@ -103,7 +105,7 @@ At boot `network-exit-network.service` restores policy after STATE and before SS
 
 ## Optional DDNS
 
-Open `sudo enodectl service`, select DDNS and `Configure / view`, apply the profile, then enable its row with `Stage toggle` and confirm `Apply changes`. Supported profiles are Cloudflare API token, DuckDNS token and an HTTPS DynDNS2 provider. One profile updates either an A record or an AAAA record; the provider must support the selected family. Cloudflare needs the zone and complete hostname; DuckDNS uses the complete `.duckdns.org` hostname; DynDNS2 needs the HTTPS server hostname and login. Tokens/passwords are masked in the editor, retained when left blank only for the same provider, and never supplied in command arguments or emitted to the journal.
+Open `sudo enodectl config`, select DDNS and `Configure / view`, apply the profile, then enable its row with `Stage toggle` and confirm `Apply changes`. Supported profiles are Cloudflare API token, DuckDNS token and an HTTPS DynDNS2 provider. One profile updates either an A record or an AAAA record; the provider must support the selected family. Cloudflare needs the zone and complete hostname; DuckDNS uses the complete `.duckdns.org` hostname; DynDNS2 needs the HTTPS server hostname and login. Tokens/passwords are masked in the editor, retained when left blank only for the same provider, and never supplied in command arguments or emitted to the journal.
 
 The profile is stored as root-only `/etc/network-exit/ddns.json` on STATE. Cache and sanitized status live in `/var/lib/network-exit/ddns`. The image ships no profile or shared provider credentials. `network-exit-ddns.timer` starts only after selection, checks approximately every minute and honors the configured 300-86400 second update interval. Stopping DDNS stops its timer and any active update; it does not delete the provider's DNS record. Profile changes clear the old provider cache.
 
@@ -155,7 +157,7 @@ This is an operational policy, not a security boundary against full root access:
 First-boot configuration includes a Textual SSH-access page. Open the service dashboard later and select SSH / public keys and CA:
 
 ```bash
-sudo enodectl service
+sudo enodectl config
 ```
 
 The table distinguishes ordinary login keys and trusted SSH user CA keys by purpose, with SHA256 fingerprints, types and comments. Up/Down selects rows, Enter opens key details, Right reaches the action buttons, and Escape goes back. Select a key to inspect or remove it, or choose an Add action to import from a device-local file, HTTPS URL such as `https://github.com/YOUR_ACCOUNT.keys`, or a pasted OpenSSH public-key line. Several keys can be imported from one file or URL. All UI labels are ASCII English and existing comments are escaped for display so they cannot inject terminal control sequences.
@@ -168,7 +170,7 @@ SSH-access menus share a STATE-backed lock. A stale menu refuses to overwrite in
 
 URLs are fetched only for an explicit import and are not polled on boot. Use sources controlled by trusted administrators: imported login keys and CA trust grant access to pi's passwordless sudo privileges.
 
-Use the SSH page's Add actions under `enodectl service` for all on-device imports; no standalone importer or separate add-key subcommand is shipped. The supported SSH login target is `pi`. The menu requires mounted persistent STATE and does not create accounts or relax the SSH policy. Factory-card personalization can still provision the initial pi public key before first boot.
+Use the SSH page's Add actions under `enodectl config` for all on-device imports; no standalone importer or separate add-key subcommand is shipped. The supported SSH login target is `pi`. The menu requires mounted persistent STATE and does not create accounts or relax the SSH policy. Factory-card personalization can still provision the initial pi public key before first boot.
 
 Remote downloads require HTTPS, including redirects, and are limited to 64 KiB with a network timeout. All keys are validated with the installed `ssh-keygen` before saving; private keys, HTML and imported authorization options are rejected. Repeated imports deduplicate by key material, including entries with existing restrictions. Keys removed from the remote source are not removed locally unless selected for removal in the menu. Review SHA256 fingerprints and confirm Save to apply the draft. No SSH daemon restart is needed.
 
@@ -176,7 +178,7 @@ The `pi` account's `.ssh/authorized_keys` resides on STATE through the persisten
 
 ## SSH user CA and hardware-backed keys
 
-The SSH-access page in first-boot setup or `sudo enodectl service` can optionally trust your SSH user CA. Choose `Add CA key`, review its fingerprints and save the authorizations. Add old and new CA keys together for a rotation; remove a selected CA row when it is no longer trusted. Removing all CA entries is allowed only if an ordinary login key remains. Private keys, certificates, PEM certificates and imported authorized_keys options are rejected.
+The SSH-access page in first-boot setup or `sudo enodectl config` can optionally trust your SSH user CA. Choose `Add CA key`, review its fingerprints and save the authorizations. Add old and new CA keys together for a rotation; remove a selected CA row when it is no longer trusted. Removing all CA entries is allowed only if an ordinary login key remains. Private keys, certificates, PEM certificates and imported authorized_keys options are rejected.
 
 Trust is stored in `/etc/network-exit/ssh-user-ca.pub` on STATE and survives reboot and compatible A/B OTA. It starts empty, with no default CA trusted. Only public keys are stored; the SSH CA private key stays with the operator and is separate from the OTA signing identity. There is no automatic download or CA refresh on boot. SSH reads the trust file for new authentications, so changing the public trust set does not require a service restart.
 
@@ -290,7 +292,7 @@ sudo enodectl update install /path/to/recovery.raucb --skip-signature-verificati
 
 The command requires an interactive terminal and the exact phrase
 `INSTALL UNVERIFIED OTA`, entered without the surrounding backticks. The CLI
-and TUI both mark the complete phrase this way. In `sudo enodectl service`, select `A/B update services`
+and TUI both mark the complete phrase this way. In `sudo enodectl config`, select `A/B update services`
 and `Configure / view` to open the OTA form. Signature bypass defaults to No;
 selecting Yes requires a local path, the same typed phrase and a final Apply
 confirmation. The form resets the bypass choice after success or failure and

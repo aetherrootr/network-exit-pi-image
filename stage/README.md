@@ -109,8 +109,7 @@ by their respective stages. Non-Python binaries, kernel support, CPython and its
 standard library remain Debian/Armbian image assets. Runtime Python wheels are
 resolved for ARM64 and the image's Python version by the builder.
 
-`enodectl service` is the shared Textual dashboard. `enodectl config` enters the
-same dashboard after any required first-boot account/password preparation.
+`enodectl config` enters the shared Textual dashboard after any required first-boot account/password preparation.
 Each configurable service registers a `service.view` factory returning a
 Textual screen. SSH and Tailscale set `mandatory: true` and
 `managed_startup: true`; fixed system services are also mandatory but are not

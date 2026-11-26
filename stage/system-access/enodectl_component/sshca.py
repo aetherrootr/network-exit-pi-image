@@ -35,7 +35,7 @@ def ensure(config):
 
 def _store(config, keys):
     if not keys:
-        raise ValueError('Remove CA authorizations on the SSH page in `sudo enodectl service`')
+        raise ValueError('Remove CA authorizations on the SSH page in `sudo enodectl config`')
     path = target(config)
     content = ''.join(line + '\n' for line, _ in keys.values())
     save(path, content)
