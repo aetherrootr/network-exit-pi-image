@@ -168,6 +168,13 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 navigate(app.screen,'left')
                 self.assertEqual(app.focused.id,expected)
 
+    async def test_dashboard_shows_read_only_bootchain_banner(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        with patch('status_summary.bootchain_banner',return_value='Bootchain: v0.0.2 | Slot A | Confirmed A | Pending - | confirmed'):
+            async with app.run_test(size=(110,36)) as pilot:
+                await self.settle(app,pilot)
+                self.assertIn('Slot A',str(app.query_one('#bootchain-summary',Static).content))
+
     async def test_status_dialog_is_immediate_and_can_escape_while_query_runs(self):
         app=ServiceApp(model=service_manager.ServiceModel())
         gate=threading.Event()

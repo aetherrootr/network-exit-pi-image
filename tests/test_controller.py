@@ -101,10 +101,13 @@ class NodeControllerTests(unittest.TestCase):
 
     def test_cli_status_does_not_check_upstream_or_reboot(self):
         with patch.object(update,'latest') as latest, \
-                patch.object(controller.subprocess,'run',return_value=subprocess.CompletedProcess([],0)) as run:
+                patch('status_summary.service_rows',return_value=([('SSH','ON','active','Required')],False)), \
+                redirect_stdout(io.StringIO()) as output:
             self.assertEqual(controller.main(['status']),0)
             latest.assert_not_called()
-            self.assertTrue(any('status' in call.args[0] for call in run.call_args_list))
+            self.assertIn('Bootchain',output.getvalue());self.assertIn('Key services',output.getvalue())
+            self.assertIn('Current slot',output.getvalue());self.assertIn('SSH',output.getvalue())
+            self.assertNotIn('Image stages:',output.getvalue())
         with patch.object(power_control,'reboot_system') as reboot:
             self.assertEqual(controller.main(['reboot','--reason','operator']),0)
             reboot.assert_called_once_with(False,'operator')

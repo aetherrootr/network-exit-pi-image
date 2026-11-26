@@ -10,6 +10,7 @@ from enodectl_core.terminal import TerminalDriver
 from enodectl_core.textual_ui import Confirm, Details, display, error_message, NAVIGATION_BINDINGS, navigation_enabled, navigate
 import service_manager
 import service_diagnostics
+import status_summary
 
 
 class ServiceApp(App):
@@ -18,6 +19,7 @@ class ServiceApp(App):
     CSS = '''
     Screen { padding: 1 2; }
     #title { height: 2; text-style: bold; }
+    #bootchain-summary { height: auto; max-height: 2; }
     #services { height: 1fr; border: ascii $accent; }
     #selection-info { height: auto; max-height: 3; }
     #result { height: auto; max-height: 4; }
@@ -36,6 +38,7 @@ class ServiceApp(App):
 
     def compose(self) -> ComposeResult:
         yield Static('Embedded Node Controller - Services', id='title')
+        yield Static('Bootchain: loading...', id='bootchain-summary', markup=False)
         yield Static('Select a service to configure it, manage startup, or inspect its status and logs.', id='selection-info')
         yield DataTable(id='services', cursor_type='row')
         with Horizontal():
@@ -68,7 +71,8 @@ class ServiceApp(App):
         row = self.records.get(self.selected, {})
         self.query_one('#configure', Button).disabled = self.busy or not bool(row.get('view'))
 
-    def show_records(self, records):
+    def show_records(self, records, bootchain=None):
+        if bootchain is not None: self.query_one('#bootchain-summary', Static).update(Text(display(bootchain)))
         previous = self.selected
         self.records = {row['name']: row for row in records}
         table = self.query_one('#services', DataTable)
@@ -90,7 +94,7 @@ class ServiceApp(App):
         try:
             if self.model is None: self.model = service_manager.ServiceModel()
             else: self.model.refresh()
-            self.call_from_thread(self.show_records, self.model.records())
+            self.call_from_thread(self.show_records, self.model.records(), status_summary.bootchain_banner())
         except Exception as exc: self.call_from_thread(self.failed, exc)
 
     def failed(self, exc):
