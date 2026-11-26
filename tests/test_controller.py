@@ -109,6 +109,18 @@ class NodeControllerTests(unittest.TestCase):
             self.assertEqual(controller.main(['reboot','--reason','operator']),0)
             reboot.assert_called_once_with(False,'operator')
 
+    def test_public_admin_command_uses_existing_sudo_policy_from_pi(self):
+        with patch.object(controller.os,'geteuid',return_value=1000), \
+                patch.object(controller.os,'execv') as execute:
+            controller.main(['config'])
+            execute.assert_called_once_with('/usr/bin/sudo',['sudo','--','/usr/local/sbin/enodectl','config'])
+
+    def test_private_backend_never_auto_elevates(self):
+        with patch.object(controller.os,'geteuid',return_value=1000), \
+                patch.object(controller.os,'execv') as execute, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit): controller.main(['--internal','verify-installed'])
+            execute.assert_not_called()
+
     def test_cli_poweroff_is_rejected_without_a_backend_call(self):
         with patch.object(controller.subprocess,'run') as run, redirect_stderr(io.StringIO()) as error:
             with self.assertRaises(SystemExit) as result: controller.main(['poweroff'])

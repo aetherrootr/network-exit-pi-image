@@ -77,6 +77,7 @@ sh -n /etc/initramfs-tools/hooks/network-exit
 sh -n /etc/initramfs-tools/scripts/init-bottom/zz-network-exit-state
 python3 -c 'import asyncio, ssl'
 /usr/local/sbin/enodectl --help
+/usr/local/bin/enodectl --help
 /usr/local/sbin/enodectl config --help
 sh -n /etc/profile.d/90-enodectl-firstboot.sh
 bash -n /usr/lib/network-exit/node-watchdog

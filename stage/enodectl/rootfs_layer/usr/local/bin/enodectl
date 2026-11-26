@@ -1,0 +1,3 @@
+#!/bin/sh
+# Make the controller available on ordinary user PATHs as well as root PATHs.
+exec /usr/local/sbin/enodectl "$@"
