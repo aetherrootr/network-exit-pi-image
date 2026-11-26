@@ -309,6 +309,10 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             await self.select(app,pilot,'cloudflared')
             await pilot.click('#configure');await self.settle(app,pilot)
             form=app.screen
+            startup=form.query_one('#form-startup',Select)
+            self.assertEqual(startup.parent.id,'fields')
+            self.assertGreaterEqual(startup.region.height,5)
+            self.assertEqual(startup.region.width,form.query_one('#field-token',Input).region.width)
             form.query_one('#field-token',Input).value='fixture-token'
             form.query_one('#form-startup',Select).value=True
             await pilot.click('#form-save');await self.confirm(app,pilot,False)

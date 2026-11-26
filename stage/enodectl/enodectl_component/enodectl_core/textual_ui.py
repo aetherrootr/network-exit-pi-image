@@ -255,7 +255,6 @@ class FormScreen(Screen):
     FormScreen Input, FormScreen Select { border: ascii $accent; }
     FormScreen TextArea { height: 14; border: ascii $accent; }
     FormScreen #form-result { height: auto; max-height: 5; }
-    FormScreen #startup-state { width: 1fr; height: 3; content-align: left middle; }
     FormScreen Horizontal { height: 3; }
     '''
 
@@ -274,12 +273,11 @@ class FormScreen(Screen):
     def compose(self):
         yield Static(Text(self.title), id='form-title')
         yield Static(Text(self.help_text), id='form-help')
-        if self.service_name:
-            with Horizontal():
-                yield Static('Saved startup: loading...', id='startup-state')
+        with NonFocusableScroll(id='fields'):
+            if self.service_name:
+                yield Label('Startup (saved: loading...)', id='startup-state')
                 yield FormSelect((('OFF - disabled', False), ('ON - enabled', True)), value=False,
                                  allow_blank=False, id='form-startup', disabled=True)
-        with NonFocusableScroll(id='fields'):
             for field in self.fields:
                 yield from self.before_field(field)
                 yield Label(Text(field.label))
@@ -316,7 +314,7 @@ class FormScreen(Screen):
         if not self.service_name: return
         import components
         self.startup_enabled = bool(components.choices().get(self.service_name))
-        self.query_one('#startup-state', Static).update('Saved startup: ' + ('ON' if self.startup_enabled else 'OFF'))
+        self.query_one('#startup-state', Label).update('Startup (saved: ' + ('ON' if self.startup_enabled else 'OFF') + ')')
         self.query_one('#form-startup', Select).value = self.startup_enabled
 
     def values(self):
