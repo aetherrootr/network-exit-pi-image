@@ -9,8 +9,9 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch, Mock
-from textual.widgets import Button, DataTable, Input, Label, Select, Static
+from textual.widgets import Button, DataTable, Input, Label, Select, Static, TextArea
 import components
+import network_management
 import service_manager
 import network_config
 import setup_state
@@ -18,7 +19,8 @@ import sshpub
 from service_tui import ServiceApp
 from ssh_editor import SSHEditor
 from ssh_view import SSHScreen
-from enodectl_core.textual_ui import FormScreen, Confirm, ReadOnlyScreen
+from enodectl_core.textual_ui import FormScreen, Confirm, ReadOnlyScreen, Details, Field, error_message
+from network_view import WiFiScanScreen
 
 
 class ServiceModelTests(unittest.TestCase):
@@ -93,6 +95,104 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
     async def confirm(self,app,pilot,yes=True):
         await pilot.click('#confirm-apply' if yes else '#confirm-cancel')
         await self.settle(app,pilot)
+
+    async def test_arrow_and_enter_navigation_without_tab(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        async with app.run_test(size=(110,36)) as pilot:
+            await self.settle(app,pilot)
+            table=app.query_one('#services',DataTable)
+            self.assertIs(app.focused,table)
+            target=list(app.records).index('cloudflared')
+            for _ in range(target): await pilot.press('down')
+            self.assertEqual(app.selected,'cloudflared')
+            await pilot.press('enter');await self.settle(app,pilot)
+            self.assertIsInstance(app.screen,FormScreen)
+            self.assertEqual(app.focused.id,'field-token')
+            await pilot.press(*'fixture-token','enter')
+            self.assertEqual(app.focused.id,'form-save')
+            await pilot.press('enter');await pilot.pause()
+            self.assertIsInstance(app.screen,Confirm)
+            self.assertEqual(app.focused.id,'confirm-cancel')
+            await pilot.press('right','enter');await self.settle(app,pilot)
+            self.assertEqual((self.config/'cloudflare-token').read_text(),'fixture-token\n')
+            await pilot.press('escape');await self.settle(app,pilot)
+            self.assertIs(app.focused,table)
+            await pilot.press('right')
+            self.assertEqual(app.focused.id,'configure')
+            await pilot.press('right')
+            self.assertEqual(app.focused.id,'toggle')
+
+    async def test_choice_multiline_and_login_dialog_use_native_editing_keys(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        form=FormScreen('Fixture', [Field('choice','Choice','choice',(('One','one'),('Two','two'))),
+                                    Field('config','Multiline','multiline')],
+                        lambda: {'choice':'one','config':''}, lambda values: 'https://login.example.test/a/fixture',
+                        result_dialog=True)
+        async with app.run_test(size=(110,36)) as pilot:
+            await self.settle(app,pilot);app.push_screen(form);await self.settle(app,pilot)
+            choice=form.query_one('#field-choice',Select)
+            self.assertIs(app.focused,choice)
+            await pilot.press('enter','down','enter');await pilot.pause()
+            self.assertEqual(choice.value,'two')
+            await pilot.press('down');await pilot.pause()
+            area=form.query_one('#field-config',TextArea)
+            self.assertIs(app.focused,area);self.assertTrue(area.read_only)
+            await pilot.press('enter','a','enter','b','escape');await pilot.pause()
+            self.assertEqual(area.text,'a\nb');self.assertTrue(area.read_only)
+            await pilot.press('down','enter');await pilot.pause()
+            self.assertIsInstance(app.screen,Confirm)
+            await pilot.press('right','enter');await self.settle(app,pilot)
+            self.assertIsInstance(app.screen,Details)
+            self.assertIn('https://login.example.test/a/fixture',app.screen.text)
+            self.assertEqual(app.focused.id,'details-back')
+            await pilot.press('enter');await pilot.pause()
+            self.assertIs(app.screen,form)
+
+    async def test_configuration_errors_use_scrollable_dialog_and_hide_command_secrets(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        def fail(values): raise ValueError('Invalid configuration: check the port number')
+        form=FormScreen('Fixture',[Field('value','Value')],lambda:{'value':'bad'},fail)
+        async with app.run_test(size=(110,36)) as pilot:
+            await self.settle(app,pilot);app.push_screen(form);await self.settle(app,pilot)
+            await pilot.press('enter','enter');await pilot.pause()
+            await pilot.press('right','enter');await self.settle(app,pilot)
+            self.assertIsInstance(app.screen,Details)
+            self.assertIn('check the port number',app.screen.text)
+            await pilot.press('enter');await pilot.pause()
+            self.assertIs(app.screen,form)
+            self.assertEqual(form.query_one('#field-value',Input).value,'bad')
+        self.assertNotIn('secret-token',error_message(subprocess.CalledProcessError(1,['tool','secret-token'])))
+
+    async def test_wifi_scan_retry_and_select_ssid_with_arrows(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        networks=[{'ssid':'Cafe','signal':-20.0,'modes':()},
+                  {'ssid':'Home \u5bb6','signal':-42.0,'modes':('sae',)}]
+        with patch.object(network_management,'scan',side_effect=[ValueError('Radio busy; try again'),networks]) as scan:
+            async with app.run_test(size=(110,42)) as pilot:
+                await self.settle(app,pilot);await self.select(app,pilot,'network')
+                await pilot.press('enter');await self.settle(app,pilot)
+                form=app.screen
+                for _ in range(7): await pilot.press('down')
+                self.assertEqual(app.focused.id,'scan-wifi')
+                await pilot.press('enter');await self.settle(app,pilot)
+                self.assertIsInstance(app.screen,Details)
+                self.assertIn('Radio busy',app.screen.text)
+                await pilot.press('enter');await pilot.pause()
+                self.assertIsInstance(app.screen,WiFiScanScreen)
+                self.assertEqual(app.focused.id,'scan-again')
+                await pilot.press('enter');await self.settle(app,pilot)
+                self.assertEqual(app.focused.id,'wifi-networks')
+                await pilot.press('enter');await pilot.pause()
+                self.assertIsInstance(app.screen,Details)
+                self.assertIn('does not advertise WPA2/WPA3',app.screen.text)
+                await pilot.press('enter','down','enter');await pilot.pause()
+                self.assertIs(app.screen,form)
+                self.assertTrue(form.query_one('#field-wifi_enabled',Select).value)
+                self.assertEqual(form.query_one('#field-wifi_ssid',Input).value,'Home \u5bb6')
+                self.assertEqual(form.query_one('#field-wifi_security',Select).value,'sae')
+                self.assertEqual(app.focused.id,'field-wifi_password')
+                self.assertEqual(scan.call_count,2)
+                self.assertFalse((self.config/'connectivity/profile.json').exists())
 
     async def test_dashboard_disables_required_toggles_and_cancel_does_not_apply(self):
         app=ServiceApp(model=service_manager.ServiceModel())
@@ -215,6 +315,8 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse((self.config/'cloudflare-token').exists())
 
     async def test_ssh_key_ca_edits_preserve_last_authorization_and_save_explicitly(self):
+        if 0 < os.getuid() < 1000:
+            self.skipTest('Real ownership changes require root or an ordinary UID of at least 1000')
         home=self.state/'homes/pi';home.mkdir(parents=True)
         keys=[]
         # The global systemctl mock is paused only for fixture ssh-keygen calls.
@@ -249,6 +351,24 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(editor.records()),1)
             await pilot.click('#ssh-remove');await self.confirm(app,pilot)
             self.assertEqual(len(editor.records()),1)
+            self.assertIsInstance(app.screen,Details)
+            await pilot.press('enter');await pilot.pause()
             await pilot.click('#ssh-save');await self.confirm(app,pilot)
             self.assertEqual((self.config/'ssh-user-ca.pub').read_text(),keys[1])
             self.assertEqual((home/'.ssh/authorized_keys').read_text(),'')
+
+    async def test_ssh_table_arrows_open_details_and_reach_actions(self):
+        row={'id':'one','role':'login','type':'ssh-ed25519','fingerprint':'SHA256:fixture','comment':'Fixture','restricted':False}
+        editor=Mock();editor.records.return_value=[row];editor.changed.return_value=False
+        app=ServiceApp(model=service_manager.ServiceModel())
+        async with app.run_test(size=(110,36)) as pilot:
+            await self.settle(app,pilot)
+            app.push_screen(SSHScreen(model=editor));await self.settle(app,pilot)
+            self.assertEqual(app.focused.id,'keys')
+            await pilot.press('enter');await pilot.pause()
+            self.assertIsInstance(app.screen,Details)
+            self.assertIn('SHA256:fixture',app.screen.text)
+            await pilot.press('enter','right');await pilot.pause()
+            self.assertEqual(app.focused.id,'ssh-add-key')
+            await pilot.press('right');await pilot.pause()
+            self.assertEqual(app.focused.id,'ssh-add-ca')

@@ -18,14 +18,14 @@ class TailscaleControlTests(unittest.TestCase):
     def setUp(self):
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup)
         self.root=Path(tmp.name);self.live=control.OFFICIAL;self.state='NeedsLogin';self.have=False
-        self.after='Running';self.keep=False;self.url='';self.commands=[]
+        self.after='Running';self.keep=False;self.url='';self.commands=[];self.health=[];self.stdout='{}'
         stack=ExitStack();self.addCleanup(stack.close)
         stack.enter_context(patch.object(components,'CONFIG',self.root))
         stack.enter_context(patch.object(config.setup_state,'RUNTIME_READY',self.root/'runtime-ready'))
         stack.enter_context(patch.object(config.network_config,'sync'))
         def output(command,**kwargs):
             if command==['tailscale','debug','prefs']:return json.dumps({'ControlURL':self.live})
-            return json.dumps({'BackendState':self.state,'HaveNodeKey':self.have,'AuthURL':self.url})
+            return json.dumps({'BackendState':self.state,'HaveNodeKey':self.have,'AuthURL':self.url,'Health':self.health})
         def run(command,**kwargs):
             self.commands.append(command)
             self.assertEqual(command[:2],['tailscale','up'])
@@ -33,7 +33,7 @@ class TailscaleControlTests(unittest.TestCase):
             self.assertFalse((self.root/'initialized').exists())
             if not self.keep:self.live=next(v.split('=',1)[1] for v in command if v.startswith('--login-server='))
             self.state=self.after;self.have=True
-            return subprocess.CompletedProcess(command,0,stdout='{}')
+            return subprocess.CompletedProcess(command,0,stdout=self.stdout)
         stack.enter_context(patch.object(control.subprocess,'check_output',side_effect=output))
         self.run=stack.enter_context(patch.object(control.subprocess,'run',side_effect=run))
 
@@ -75,6 +75,18 @@ class TailscaleControlTests(unittest.TestCase):
         self.assertIn(self.url,message)
         self.assertFalse((self.root/'initialized').exists())
         with self.assertRaisesRegex(ValueError,'authorization'):config.check()
+
+    def test_empty_url_reports_actual_login_health_and_retry(self):
+        self.after='NeedsLogin';self.health=['fetch control key: failed to resolve headscale.example.com']
+        with self.assertRaisesRegex(ValueError,'failed to resolve') as failure:config.save(self.values())
+        self.assertIn('not available yet',str(failure.exception))
+        self.assertIn('failed to resolve',config.details())
+        self.assertIn('Check network connectivity',config.details())
+
+    def test_pending_url_can_come_from_cli_json_stream(self):
+        self.after='NeedsLogin'
+        self.stdout='{}\n'+json.dumps({'AuthURL':'https://login.tailscale.com/a/fixture'})+'\n{}'
+        self.assertIn('https://login.tailscale.com/a/fixture',config.save(self.values()))
 
     def test_wrong_actual_control_fails_without_automatic_official_fallback(self):
         self.keep=True

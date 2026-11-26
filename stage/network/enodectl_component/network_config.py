@@ -243,8 +243,24 @@ def diagnostics():
              'Provisioning: ' + ('complete; bootstrap address retired or removal pending' if provisioned else 'initial setup'),
              'Wi-Fi: ' + ('enabled' if profile['wifi_enabled'] else 'disabled'),
              'DHCP route metrics: Ethernet 100, Wi-Fi 600. Ethernet IPv6 RA metric: 100. No Internet probing/failover is performed.']
+    if profile['wifi_enabled']:
+        try:
+            radio = connectivity.wireless_interface(profile)
+            result = subprocess.run(['iw', 'dev', radio, 'link'], capture_output=True, text=True, check=False, timeout=10)
+            lines += ['Wi-Fi radio: ' + radio, result.stdout.strip() or result.stderr.strip() or 'No wireless link information.']
+            if 'Not connected' in result.stdout:
+                lines.append('Wi-Fi is not associated. Verify the selected SSID, security mode and password.')
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            lines.append('Unable to read Wi-Fi link status: ' + str(exc))
+    default_route = False
+    routes_read = True
     for command in (['ip', '-brief', 'address'], ['ip', '-4', 'route'], ['ip', '-6', 'route']):
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=10)
         lines += [' '.join(command), result.stdout.strip() or result.stderr.strip()]
+        if command[-1] == 'route':
+            routes_read = routes_read and result.returncode == 0
+            default_route = default_route or any(line.startswith('default ') for line in result.stdout.splitlines())
+    if routes_read and not default_route:
+        lines.append('No IPv4 or IPv6 default route. Connect an Internet uplink before authorizing online services.')
     lines += ['Resolver configuration', Path('/etc/resolv.conf').read_text()[:2048]]
     return lines

@@ -1,10 +1,37 @@
 """Noninteractive Tailscale/Headscale configuration and authorization checks."""
 import json
 import subprocess
+from urllib.parse import urlsplit
 import components
 import network_config
 import setup_state
 import tailscale_control as control
+
+
+def authorization_url(value):
+    if not isinstance(value, str) or any(ord(c) <= 32 or ord(c) >= 127 for c in value): return ''
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme == 'https' and parsed.hostname and parsed.username is None and parsed.password is None:
+            return value
+    except ValueError: pass
+    return ''
+
+
+def login_status(status, url=''):
+    url = authorization_url(url or status.get('AuthURL'))
+    lines = ['State: ' + status['BackendState'], 'Control server: ' + control.preferences()]
+    if url:
+        lines += ['Authorization URL:', url, 'Open the URL on another computer, then check status again.']
+    elif status['BackendState'] == 'Running':
+        lines.append('Authorization: connected; no login URL is needed.')
+    else:
+        lines.append('Authorization URL: not available yet.')
+        lines.append('Check network connectivity, DNS and the control server. Use Network / Wi-Fi / firewall to configure an Internet uplink, then check status again or retry Apply configuration.')
+    health = status.get('Health')
+    if isinstance(health, list):
+        lines.extend('Health: ' + item for item in health if isinstance(item, str) and item)
+    return '\n'.join(lines)
 
 
 def load():
@@ -52,16 +79,22 @@ def save(values):
             setup_state.complete(components.CONFIG)
         return 'Tailscale is connected to the selected control plane. Device identity was retained unless reauthentication was confirmed.'
     # The CLI's JSON stream and local status can supply the authorization URL.
-    url = status.get('AuthURL', '')
+    url = authorization_url(status.get('AuthURL'))
     if not url:
-        try: url = json.loads(result.stdout).get('AuthURL', '')
-        except (ValueError, AttributeError): pass
-    if isinstance(url, str) and url.startswith('https://') and not any(ord(c) < 32 for c in url):
-        return 'Authorization is pending. Open this URL on an operator computer, then use Check status and Finish setup:\n' + url
-    raise ValueError('Tailscale authorization is incomplete. Check status; the requested control plane was retained for retry.')
+        # `up --json` may emit more than one JSON object as the login progresses.
+        pending = result.stdout.strip()
+        decoder = json.JSONDecoder()
+        while pending:
+            try: item, end = decoder.raw_decode(pending)
+            except ValueError: break
+            if isinstance(item, dict): url = authorization_url(item.get('AuthURL')) or url
+            pending = pending[end:].lstrip()
+    if control.preferences() != target:
+        raise ValueError('Tailscale is not using the requested control plane. No automatic fallback was attempted.\n' + login_status(status))
+    if url:
+        return 'Authorization is pending. After approval, use Check status and Finish setup.\n\n' + login_status(status, url)
+    raise ValueError('Tailscale authorization is incomplete. The requested control plane was retained for retry.\n\n' + login_status(status))
 
 
 def details():
-    status = control.backend_status()
-    return '\n'.join(['State: ' + status['BackendState'], 'Control server: ' + control.preferences(),
-                       'Authorization URL: ' + str(status.get('AuthURL', '(none)'))])
+    return login_status(control.backend_status())

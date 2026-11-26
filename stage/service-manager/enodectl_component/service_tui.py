@@ -6,13 +6,13 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Button, DataTable, Static
 from enodectl_core import registry
-from enodectl_core.textual_ui import Confirm, Details, display
+from enodectl_core.textual_ui import Confirm, Details, display, error_message, NAVIGATION_BINDINGS, navigation_enabled, navigate
 import service_manager
 
 
 class ServiceApp(App):
     TITLE = 'Embedded Node Controller'
-    BINDINGS = [('ctrl+q', 'quit', 'Quit'), ('f5', 'reload', 'Refresh')]
+    BINDINGS = [('ctrl+q', 'quit', 'Quit'), ('f5', 'reload', 'Refresh'), *NAVIGATION_BINDINGS]
     CSS = '''
     Screen { padding: 1 2; }
     #title { height: 2; text-style: bold; }
@@ -21,6 +21,8 @@ class ServiceApp(App):
     #result { height: auto; max-height: 4; }
     Horizontal { height: 3; }
     Button { min-width: 10; }
+    Button:focus { text-style: bold reverse; }
+    DataTable:focus, Input:focus, Select:focus, TextArea:focus { border: ascii $success; }
     '''
 
     def __init__(self, model=None, first_boot=False):
@@ -43,12 +45,19 @@ class ServiceApp(App):
         with Horizontal():
             yield Button('Finish setup', id='finish')
             yield Button('Quit', id='quit')
-        yield Static('`Tab`: move focus | `Arrows`: select row | `Enter`: button | `F5`: refresh | `Ctrl+Q`: quit')
+        yield Static('Up/Down: service | Right: actions | Enter: configure/select | F5: refresh | Ctrl+Q: quit')
 
     def on_mount(self):
         self.query_one('#services', DataTable).add_columns('Service', 'Startup', 'Runtime', 'Policy')
+        self.query_one('#services', DataTable).focus()
         self.set_busy(True)
         self.reload_records()
+
+    def check_action(self, action, parameters):
+        if action == 'navigate': return navigation_enabled(self.screen, parameters[0])
+        return super().check_action(action, parameters)
+
+    def action_navigate(self, key): navigate(self.screen, key)
 
     def set_busy(self, value):
         self.busy = value
@@ -87,22 +96,33 @@ class ServiceApp(App):
 
     def failed(self, exc):
         self.set_busy(False)
-        self.query_one('#result', Static).update(Text(display(str(exc))))
+        message = error_message(exc)
+        self.query_one('#result', Static).update(Text(display(message)))
+        self.push_screen(Details(message, title='Service configuration error'))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted):
+        if event.data_table.id != 'services': return
         self.selected = str(event.row_key.value)
         self.update_buttons()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected):
+        if event.data_table.id != 'services': return
+        self.selected = str(event.row_key.value)
+        self.open_selected()
+
+    def open_selected(self):
+        if self.busy: return
+        reference = self.records.get(self.selected, {}).get('view')
+        if reference:
+            try: self.push_screen(registry.resolve(reference)(), lambda result: self.reload_records())
+            except Exception as exc: self.failed(exc)
 
     def on_button_pressed(self, event: Button.Pressed):
         if self.busy: return
         button = event.button.id
         if button == 'quit': self.action_quit()
         elif button == 'refresh': self.reload_records()
-        elif button == 'configure':
-            reference = self.records.get(self.selected, {}).get('view')
-            if reference:
-                try: self.push_screen(registry.resolve(reference)(), lambda result: self.reload_records())
-                except Exception as exc: self.failed(exc)
+        elif button == 'configure': self.open_selected()
         elif button == 'toggle':
             try:
                 self.model.toggle(self.selected)
