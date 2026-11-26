@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock
 
 from textual import events
-from enodectl_core.terminal import KeyboardDriver, TerminalInput
+from enodectl_core.terminal import TerminalDriver, TerminalInput
 
 
 class TerminalInputTests(unittest.TestCase):
@@ -25,18 +25,23 @@ class TerminalInputTests(unittest.TestCase):
         messages = list(reader.feed(b'\x1b[200~A\x8cB\x1b[201~'))
         self.assertEqual([message.text for message in messages if isinstance(message, events.Paste)], ['AB'])
 
-    def test_driver_explicitly_disables_mouse_reporting(self):
-        driver = object.__new__(KeyboardDriver)
+    def test_driver_uses_sgr_mouse_without_hover_flooding(self):
+        driver = object.__new__(TerminalDriver)
         driver.write, driver.flush = Mock(), Mock()
+        driver._mouse = True
         driver._enable_mouse_support()
-        control = driver.write.call_args.args[0]
+        control = ''.join(call.args[0] for call in driver.write.call_args_list)
         for mode in (9, 1000, 1002, 1003, 1005, 1006, 1015, 1016):
             self.assertIn(f'\x1b[?{mode}l', control)
+        self.assertIn('\x1b[?1006h\x1b[?1002h', control)
+        self.assertNotIn('\x1b[?1003h', control)
         driver.flush.assert_called_once()
+        messages = list(TerminalInput().feed(b'\x1b[<0;4;5M\x1b[<0;4;5m'))
+        self.assertEqual([type(message) for message in messages], [events.MouseDown, events.MouseUp])
 
     def test_actual_reader_thread_survives_invalid_bytes(self):
         read_fd, write_fd = os.pipe()
-        driver = object.__new__(KeyboardDriver)
+        driver = object.__new__(TerminalDriver)
         driver.fileno = read_fd
         driver._debug = False
         driver.exit_event = threading.Event()

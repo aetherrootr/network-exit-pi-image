@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import threading
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -19,7 +20,7 @@ import sshpub
 from service_tui import ServiceApp
 from ssh_editor import SSHEditor
 from ssh_view import SSHScreen
-from enodectl_core.textual_ui import FormScreen, Confirm, ReadOnlyScreen, Details, Field, error_message
+from enodectl_core.textual_ui import FormScreen, Confirm, ReadOnlyScreen, Details, Field, error_message, navigate
 from network_view import WiFiScanScreen
 
 
@@ -132,6 +133,8 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             await self.settle(app,pilot);app.push_screen(form);await self.settle(app,pilot)
             choice=form.query_one('#field-choice',Select)
             self.assertIs(app.focused,choice)
+            await pilot.press('right');self.assertEqual(choice.value,'two')
+            await pilot.press('left');self.assertEqual(choice.value,'one')
             await pilot.press('enter','down','enter');await pilot.pause()
             self.assertEqual(choice.value,'two')
             await pilot.press('down');await pilot.pause()
@@ -147,6 +150,80 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.focused.id,'details-back')
             await pilot.press('enter');await pilot.pause()
             self.assertIs(app.screen,form)
+
+    async def test_fast_arrow_focus_changes_are_not_deferred(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        async with app.run_test(size=(110,36)) as pilot:
+            await self.settle(app,pilot);await self.select(app,pilot,'cloudflared')
+            self.assertEqual(app.focused.id,'services')
+            for expected in ('configure','toggle','apply','refresh'):
+                navigate(app.screen,'right')
+                self.assertEqual(app.focused.id,expected)
+            for expected in ('apply','toggle','configure','services'):
+                navigate(app.screen,'left')
+                self.assertEqual(app.focused.id,expected)
+
+    async def test_status_dialog_is_immediate_and_can_escape_while_query_runs(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        gate=threading.Event()
+        self.addCleanup(gate.set)
+        def status():
+            gate.wait(5)
+            return 'Fixture status'
+        form=FormScreen('Fixture',[Field('value','Value')],lambda:{'value':'old'},lambda values:'saved',status)
+        async with app.run_test(size=(110,36)) as pilot:
+            await self.settle(app,pilot);app.push_screen(form);await self.settle(app,pilot)
+            await pilot.click('#form-details');await pilot.pause()
+            self.assertIsInstance(app.screen,Details)
+            self.assertIn('Checking service status',app.screen.text)
+            self.assertFalse(app.screen.query_one('#details-back',Button).disabled)
+            await pilot.press('escape');await pilot.pause()
+            self.assertIs(app.screen,form)
+            self.assertFalse(form.query_one('#form-save',Button).disabled)
+            gate.set()
+            await self.settle(app,pilot)
+            self.assertIs(app.screen,form)
+            await pilot.click('#form-details');await self.settle(app,pilot)
+            self.assertEqual(app.screen.text,'Fixture status')
+            await pilot.press('left');self.assertEqual(app.focused.id,'details-refresh')
+            await pilot.press('right');self.assertEqual(app.focused.id,'details-back')
+            await pilot.press('enter');await pilot.pause()
+            self.assertIs(app.screen,form)
+
+    async def test_status_timeout_is_visible_and_back_still_works(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        gate=threading.Event()
+        self.addCleanup(gate.set)
+        def status():
+            gate.wait(5)
+            return 'Late result'
+        form=FormScreen('Fixture',[Field('value','Value')],lambda:{'value':'old'},lambda values:'saved',status)
+        with patch.object(Details,'STATUS_TIMEOUT',0.1):
+            async with app.run_test(size=(110,36)) as pilot:
+                await self.settle(app,pilot);app.push_screen(form);await self.settle(app,pilot)
+                await pilot.click('#form-details');await pilot.pause(0.25)
+                self.assertIn('timed out',app.screen.text)
+                self.assertFalse(app.screen.query_one('#details-refresh',Button).disabled)
+                gate.set();await pilot.pause()
+                self.assertIn('timed out',app.screen.text)
+                await pilot.press('escape');await pilot.pause()
+                self.assertIs(app.screen,form)
+
+    async def test_read_only_status_can_return_before_loader_finishes(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        gate=threading.Event()
+        self.addCleanup(gate.set)
+        def status():
+            gate.wait(5)
+            return 'Late policy result'
+        async with app.run_test(size=(110,36)) as pilot:
+            await self.settle(app,pilot)
+            app.push_screen(ReadOnlyScreen('Fixture',status));await pilot.pause()
+            self.assertFalse(app.screen.query_one('#policy-back',Button).disabled)
+            await pilot.press('escape');await pilot.pause()
+            self.assertEqual(len(app.screen_stack),1)
+            gate.set();await self.settle(app,pilot)
+            self.assertEqual(len(app.screen_stack),1)
 
     async def test_configuration_errors_use_scrollable_dialog_and_hide_command_secrets(self):
         app=ServiceApp(model=service_manager.ServiceModel())

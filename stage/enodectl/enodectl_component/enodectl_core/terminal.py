@@ -1,4 +1,4 @@
-"""Keyboard-first terminal input for the pinned Textual Linux driver."""
+"""Robust keyboard and SGR mouse input for the pinned Textual Linux driver."""
 from codecs import getincrementaldecoder
 import os
 import selectors
@@ -23,7 +23,6 @@ class TerminalInput:
     @staticmethod
     def filtered(messages):
         for message in messages:
-            if isinstance(message, events.MouseEvent): continue
             if isinstance(message, events.Key):
                 if clean_input(message.key) != message.key: continue
                 if message.character and clean_input(message.character) != message.character: continue
@@ -44,15 +43,26 @@ class TerminalInput:
         except (EOFError, ParseError): pass
 
 
-class KeyboardDriver(LinuxDriver):
-    """Avoid legacy mouse reports and tolerate malformed terminal input."""
+class TerminalDriver(LinuxDriver):
+    """Use SGR mouse reports and tolerate malformed terminal input."""
     def __init__(self, app, *, debug=False, mouse=True, size=None):
-        super().__init__(app, debug=debug, mouse=False, size=size)
+        super().__init__(app, debug=debug, mouse=mouse, size=size)
 
-    def _enable_mouse_support(self):
+    def _reset_mouse_modes(self):
         # Explicitly reset reporting modes: a previous crashed application may
         # have left X10, VT200, UTF-8 or extended mouse tracking enabled.
         self.write(''.join(f'\x1b[?{mode}l' for mode in (9, 1000, 1002, 1003, 1005, 1006, 1015, 1016)))
+
+    def _enable_mouse_support(self):
+        self._reset_mouse_modes()
+        if self._mouse:
+            # Select SGR encoding before enabling button-event tracking. Click,
+            # wheel and drag work without flooding the SSH stream on hover.
+            self.write('\x1b[?1006h\x1b[?1002h')
+        self.flush()
+
+    def _disable_mouse_support(self):
+        self._reset_mouse_modes()
         self.flush()
 
     def run_input_thread(self):
