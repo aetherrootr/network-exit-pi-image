@@ -104,6 +104,7 @@ class ServiceApp(App):
 
     def request_refresh(self):
         if self.busy or self.refreshing or len(self.screen_stack) != 1: return
+        if self.screen.query_one_optional('#services', DataTable) is None: return
         self.refreshing = True
         self.reload_records()
 
@@ -124,6 +125,12 @@ class ServiceApp(App):
     def refresh_complete(self, records, bootchain, error=None):
         self.refreshing = False
         if self.busy or len(self.screen_stack) != 1: return
+        # On shutdown Textual may have removed the dashboard's widgets before
+        # a previously scheduled thread callback runs. Do not render stale data.
+        if self.screen.query_one_optional('#bootchain-summary', Static) is None: return
+        if self.screen.query_one_optional('#services', DataTable) is None: return
+        if self.screen.query_one_optional('#result', Static) is None: return
+        if self.screen.query_one_optional('#configure', Button) is None: return
         if error: self.show_message('Status refresh failed: ' + error_message(error))
         else: self.show_records(records, bootchain)
 
