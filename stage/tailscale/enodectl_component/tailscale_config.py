@@ -8,6 +8,12 @@ import setup_state
 import tailscale_control as control
 
 
+class ReauthenticationRequired(ValueError):
+    def __init__(self, current, target):
+        self.current, self.target = current, target
+        super().__init__('Changing control plane may disconnect this session. Explicitly confirm reauthentication first.')
+
+
 def authorization_url(value):
     if not isinstance(value, str) or any(ord(c) <= 32 or ord(c) >= 127 for c in value): return ''
     try:
@@ -39,7 +45,7 @@ def load():
     target = control.control_url(json.loads(path.read_text())['login_server']) if path.exists() else control.preferences()
     return {'provider': 'official' if target == control.OFFICIAL else 'headscale',
             'headscale_url': target if target != control.OFFICIAL else '',
-            'advertise_exit': bool(components.choices().get('tailscale_exit')), 'reauth_confirm': False}
+            'advertise_exit': bool(components.choices().get('tailscale_exit'))}
 
 
 def check():
@@ -58,8 +64,8 @@ def save(values):
     before = control.backend_status()
     identity = before.get('HaveNodeKey', before['BackendState'] not in ('NoState', 'NeedsLogin'))
     switching = current != target and identity
-    if switching and not values['reauth_confirm']:
-        raise ValueError('Changing control plane may disconnect this session. Explicitly confirm reauthentication first.')
+    if switching and not values.get('reauth_confirm', False):
+        raise ReauthenticationRequired(current, target)
     complete = (components.CONFIG / 'initialized').exists()
     setup_state.invalidate(components.CONFIG)
     components.save(components.CONFIG / 'tailscale-control.json', json.dumps({'provider': values['provider'], 'login_server': target}) + '\n')

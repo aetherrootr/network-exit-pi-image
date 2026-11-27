@@ -62,7 +62,10 @@ class TailscaleControlTests(unittest.TestCase):
         self.state='Running';self.have=True
         (self.root/'initialized').write_text('1\n')
         values=self.values();values.update(provider='headscale',headscale_url=HEADSCALE)
-        with self.assertRaisesRegex(ValueError,'Explicitly confirm'):config.save(values)
+        values.pop('reauth_confirm')
+        with self.assertRaisesRegex(config.ReauthenticationRequired,'Explicitly confirm') as required:config.save(values)
+        self.assertEqual(required.exception.current,control.OFFICIAL)
+        self.assertEqual(required.exception.target,HEADSCALE)
         self.run.assert_not_called();self.assertTrue((self.root/'initialized').exists())
         values['reauth_confirm']=True
         # Completion cannot be restored by this unit fixture's absent SSH keys.

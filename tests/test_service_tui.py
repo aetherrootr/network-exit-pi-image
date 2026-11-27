@@ -280,6 +280,37 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsInstance(app.screen,Confirm)
                 await self.confirm(app,pilot,False)
 
+    async def test_tailscale_reauthentication_confirmation_is_conditional(self):
+        import tailscale_config as backend
+        from tailscale_view import screen
+        app=ServiceApp(model=service_manager.ServiceModel())
+        target='https://headscale.example.test'
+        def save(values):
+            if values['provider']=='headscale' and not values.get('reauth_confirm'):
+                raise backend.ReauthenticationRequired('https://controlplane.tailscale.com',target)
+            return 'Configuration saved'
+        with patch.object(backend,'load',return_value={'provider':'official','headscale_url':'','advertise_exit':False}), \
+                patch.object(backend,'save',side_effect=save) as apply:
+            async with app.run_test(size=(110,36)) as pilot:
+                await self.settle(app,pilot);app.push_screen(screen());await self.settle(app,pilot)
+                form=app.screen
+                self.assertFalse(list(form.query('#field-reauth_confirm')))
+                await pilot.click('#form-save');await self.confirm(app,pilot)
+                self.assertIsInstance(app.screen,Details)
+                self.assertNotIn('reauth_confirm',apply.call_args.args[0])
+                await pilot.press('escape');await pilot.pause()
+                form.query_one('#field-provider',Select).value='headscale'
+                form.query_one('#field-headscale_url',Input).value=target
+                await pilot.click('#form-save');await self.confirm(app,pilot)
+                self.assertIsInstance(app.screen,Confirm)
+                self.assertIn(target,app.screen.message)
+                await self.confirm(app,pilot,False)
+                self.assertEqual(apply.call_count,2)
+                await pilot.click('#form-save');await self.confirm(app,pilot)
+                await self.confirm(app,pilot)
+                self.assertIsInstance(app.screen,Details)
+                self.assertTrue(apply.call_args.args[0]['reauth_confirm'])
+
     async def test_status_timeout_is_visible_and_back_still_works(self):
         app=ServiceApp(model=service_manager.ServiceModel())
         gate=threading.Event()
