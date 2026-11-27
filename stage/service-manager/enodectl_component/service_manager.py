@@ -12,18 +12,26 @@ class ServiceModel:
         saved = components.choices()
         self.enabled = {s['name']: bool(s.get('mandatory') or saved.get(s['name'], False)) for s in registry.services()}
 
-    def records(self):
+    def records(self, query_runtime=True):
+        services = registry.services()
+        units = list(dict.fromkeys(unit for service in services for unit in service['units']))
+        states = dict.fromkeys(units, 'checking...')
+        if query_runtime and units:
+            # One systemctl invocation avoids repeated process/DBus startup on
+            # small boards. is-active prints one state per requested unit.
+            try:
+                result = subprocess.run(['systemctl', 'is-active', *units], capture_output=True, text=True, timeout=10, check=False)
+                output = result.stdout.splitlines()
+                states = dict(zip(units, output)) if len(output) == len(units) else dict.fromkeys(units, 'unknown')
+            except (OSError, subprocess.SubprocessError): states = dict.fromkeys(units, 'unavailable')
         rows = []
-        for service in registry.services():
-            states = []
+        for service in services:
+            runtime = []
             for unit in service['units']:
-                try:
-                    result = subprocess.run(['systemctl', 'is-active', unit], capture_output=True, text=True, timeout=10, check=False)
-                    state = result.stdout.strip() or 'unknown'
-                    states.append('on-demand' if unit not in service.get('health_units', service['units']) and state == 'inactive' else state)
-                except (OSError, subprocess.SubprocessError): states.append('unavailable')
+                state = states[unit].strip() or 'unknown'
+                runtime.append('on-demand' if unit not in service.get('health_units', service['units']) and state == 'inactive' else state)
             rows.append({**service, 'enabled': self.enabled[service['name']],
-                         'state': ', '.join(states) if states else 'built-in'})
+                         'state': ', '.join(runtime) if runtime else 'built-in'})
         return rows
 
 def change_startup(name, enabled):
@@ -73,9 +81,16 @@ def apply_service_settings(name, enabled, config_changed, saver):
 
 
 def ensure_management():
-    for service in registry.services():
-        if service.get('managed_startup'):
-            subprocess.run(['systemctl', 'enable', '--now', *service['units']], check=True, capture_output=True)
+    units = [unit for service in registry.services() if service.get('managed_startup') for unit in service['units']]
+    if not units: return
+    # Avoid repeatedly enabling already working mandatory services on every
+    # interactive login (enable can trigger a relatively expensive daemon reload).
+    try:
+        active = subprocess.run(['systemctl', 'is-active', *units], capture_output=True, text=True, timeout=5, check=False).stdout.splitlines()
+        enabled = subprocess.run(['systemctl', 'is-enabled', *units], capture_output=True, text=True, timeout=5, check=False).stdout.splitlines()
+        if active == ['active'] * len(units) and enabled == ['enabled'] * len(units): return
+    except (OSError, subprocess.SubprocessError): pass
+    subprocess.run(['systemctl', 'enable', '--now', *units], check=True, capture_output=True)
 
 
 def finish_setup():

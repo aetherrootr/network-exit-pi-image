@@ -5,6 +5,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Button, DataTable, Static
+from textual.worker import get_current_worker
 from enodectl_core import registry
 from enodectl_core.terminal import TerminalDriver
 from enodectl_core.textual_ui import Confirm, Details, display, error_message, NAVIGATION_BINDINGS, navigation_enabled, navigate
@@ -15,7 +16,8 @@ import status_summary
 
 class ServiceApp(App):
     TITLE = 'Embedded Node Controller'
-    BINDINGS = [('ctrl+q', 'quit', 'Quit'), ('f5', 'reload', 'Refresh'), *NAVIGATION_BINDINGS]
+    REFRESH_SECONDS = 5
+    BINDINGS = [('ctrl+q', 'quit', 'Exit'), ('f5', 'reload', 'Refresh'), *NAVIGATION_BINDINGS]
     CSS = '''
     Screen { padding: 1 2; }
     #title { height: 2; text-style: bold; }
@@ -35,6 +37,7 @@ class ServiceApp(App):
         self.records = {}
         self.selected = None
         self.busy = False
+        self.refreshing = False
 
     def compose(self) -> ComposeResult:
         yield Static('Embedded Node Controller - Services', id='title')
@@ -43,18 +46,21 @@ class ServiceApp(App):
         yield DataTable(id='services', cursor_type='row')
         with Horizontal():
             yield Button('Configure / view', id='configure', variant='primary')
-            yield Button('Refresh', id='refresh')
+            yield Button('Exit', id='exit')
         yield Static('Loading service state...', id='result', markup=False)
-        with Horizontal():
-            yield Button('Finish / exit', id='finish')
-            yield Button('Quit', id='quit')
-        yield Static('Up/Down: service | Right: actions | Enter: configure/select | F5: refresh | Ctrl+Q: quit')
+        yield Static('Up/Down: service | Right: actions | Enter: configure/select | Ctrl+Q: exit | Status updates automatically')
 
     def on_mount(self):
-        self.query_one('#services', DataTable).add_columns('Service', 'Startup', 'Runtime', 'Policy')
-        self.query_one('#services', DataTable).focus()
-        self.set_busy(True)
-        self.reload_records()
+        table = self.query_one('#services', DataTable)
+        for label in ('Service', 'Startup', 'Runtime', 'Policy'):
+            table.add_column(label, key=label.lower())
+        table.focus()
+        try:
+            if self.model is None: self.model = service_manager.ServiceModel()
+            self.show_records(self.model.records(query_runtime=False))
+        except Exception as exc: self.show_message(error_message(exc))
+        self.request_refresh()
+        self.set_interval(self.REFRESH_SECONDS, self.request_refresh)
 
     def check_action(self, action, parameters):
         if action == 'navigate': return navigation_enabled(self.screen, parameters[0])
@@ -74,28 +80,52 @@ class ServiceApp(App):
     def show_records(self, records, bootchain=None):
         if bootchain is not None: self.query_one('#bootchain-summary', Static).update(Text(display(bootchain)))
         previous = self.selected
+        old = self.records
         self.records = {row['name']: row for row in records}
         table = self.query_one('#services', DataTable)
-        table.clear()
-        for row in records:
-            startup = 'ON' if row['enabled'] else 'OFF'
-            table.add_row(Text(display(row['label'])), startup,
-                          Text(display(row['state'])), 'Required' if row.get('mandatory') else 'Optional', key=row['name'])
-        if records:
-            index = next((i for i, row in enumerate(records) if row['name'] == previous), 0)
-            table.move_cursor(row=index)
-            self.selected = records[index]['name']
-        self.set_busy(False)
-        self.query_one('#result', Static).update('Saved startup choices. Change configuration or startup from the service page.')
+        if list(old) == list(self.records) and table.row_count == len(records):
+            for row in records:
+                name = row['name']
+                if row['enabled'] != old[name]['enabled']:
+                    table.update_cell(name, 'startup', 'ON' if row['enabled'] else 'OFF', update_width=True)
+                if row['state'] != old[name]['state']:
+                    table.update_cell(name, 'runtime', Text(display(row['state'])), update_width=True)
+        else:
+            table.clear()
+            for row in records:
+                table.add_row(Text(display(row['label'])), 'ON' if row['enabled'] else 'OFF',
+                              Text(display(row['state'])), 'Required' if row.get('mandatory') else 'Optional', key=row['name'])
+            if records:
+                index = next((i for i, row in enumerate(records) if row['name'] == previous), 0)
+                table.move_cursor(row=index)
+                self.selected = records[index]['name']
+        self.update_buttons()
+        self.show_message('Saved startup choices. Runtime status updates automatically.' if bootchain is not None else 'Checking runtime status in the background...')
+
+    def request_refresh(self):
+        if self.busy or self.refreshing or len(self.screen_stack) != 1: return
+        self.refreshing = True
+        self.reload_records()
 
     @work(thread=True, exclusive=True, group='service-read')
     def reload_records(self):
-        self.call_from_thread(self.set_busy, True)
+        worker = get_current_worker()
         try:
             if self.model is None: self.model = service_manager.ServiceModel()
             else: self.model.refresh()
-            self.call_from_thread(self.show_records, self.model.records(), status_summary.bootchain_banner())
-        except Exception as exc: self.call_from_thread(self.failed, exc)
+            records, bootchain = self.model.records(), status_summary.bootchain_banner()
+            result = (records, bootchain)
+        except Exception as exc: result = (None, None, exc)
+        if not worker.is_cancelled:
+            try: self.call_from_thread(self.refresh_complete, *result)
+            except RuntimeError:
+                if not worker.is_cancelled: raise
+
+    def refresh_complete(self, records, bootchain, error=None):
+        self.refreshing = False
+        if self.busy or len(self.screen_stack) != 1: return
+        if error: self.show_message('Status refresh failed: ' + error_message(error))
+        else: self.show_records(records, bootchain)
 
     def failed(self, exc):
         self.set_busy(False)
@@ -117,53 +147,36 @@ class ServiceApp(App):
         if self.busy: return
         reference = self.records.get(self.selected, {}).get('view')
         if reference:
-            try: self.push_screen(registry.resolve(reference)(), lambda result: self.reload_records())
+            try: self.push_screen(registry.resolve(reference)(), lambda result: self.request_refresh())
             except Exception as exc: self.failed(exc)
 
     def on_button_pressed(self, event: Button.Pressed):
         if self.busy: return
         button = event.button.id
-        if button == 'quit': self.action_quit()
-        elif button == 'refresh': self.reload_records()
+        if button == 'exit': self.action_quit()
         elif button == 'configure': self.open_selected()
-        elif button == 'finish':
-            message = 'Confirm setup health and exit? SSH keys and Tailscale authorization must be ready.'
-            for stage in registry.stages():
-                if stage.get('setup_notice'): message += '\n' + stage['setup_notice']
-            self.push_screen(Confirm(message), lambda yes: self.start_operation() if yes else None)
-
-    def start_operation(self):
-        if self.busy: return
-        self.set_busy(True)
-        self.apply_changes()
-
-    @work(thread=True, exclusive=True, group='service-write')
-    def apply_changes(self):
-        self.call_from_thread(self.set_busy, True)
-        try:
-            service_manager.finish_setup()
-            self.model.refresh()
-            self.call_from_thread(self.show_records, self.model.records())
-            self.call_from_thread(self.exit, True)
-        except Exception as exc:
-            self.model.refresh()
-            self.call_from_thread(self.show_records, self.model.records())
-            self.call_from_thread(self.failed, exc)
 
     def action_reload(self):
-        if len(self.screen_stack) == 1 and not self.busy: self.reload_records()
+        self.request_refresh()
 
     def show_message(self, message): self.query_one('#result', Static).update(message)
 
     def action_quit(self):
         if self.busy or getattr(self.screen, 'busy', False): return
         unsaved = any(getattr(screen, 'has_unsaved', lambda: False)() for screen in self.screen_stack)
-        if unsaved or self.first_boot:
-            self.push_screen(Confirm('Discard unapplied changes and check health before exit?'), lambda yes: self.start_exit_check() if yes else None)
+        needs_setup = not (service_manager.components.CONFIG / 'initialized').exists()
+        if unsaved or needs_setup:
+            message = 'Discard unapplied form changes?\n' if unsaved else ''
+            message += 'Complete setup and check service health before exit?' if needs_setup else 'Check health before exit?'
+            if needs_setup:
+                for stage in registry.stages():
+                    if stage.get('setup_notice'): message += '\n' + stage['setup_notice']
+            self.push_screen(Confirm(message), lambda yes: self.start_exit_check() if yes else None)
         else: self.start_exit_check()
 
     def start_exit_check(self):
         if self.busy: return
+        while len(self.screen_stack) > 1: self.pop_screen()
         self.set_busy(True)
         self.show_message('Checking public Internet and required services before exit...')
         self.check_exit()
@@ -171,9 +184,8 @@ class ServiceApp(App):
     @work(thread=True, exclusive=True, group='exit-health')
     def check_exit(self):
         try:
-            service_diagnostics.health()
-            if not (service_manager.components.CONFIG / 'initialized').exists():
-                raise ValueError('First-boot setup is incomplete. Use Finish / exit to confirm configuration.')
+            if not (service_manager.components.CONFIG / 'initialized').exists(): service_manager.finish_setup()
+            else: service_diagnostics.health()
             self.call_from_thread(self.exit, True)
         except Exception as exc: self.call_from_thread(self.exit_failed, error_message(exc))
 

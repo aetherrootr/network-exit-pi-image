@@ -49,6 +49,20 @@ class ServiceModelTests(unittest.TestCase):
         self.run.assert_not_called()
         self.assertFalse((self.root/'components.json').exists())
 
+    def test_runtime_queries_are_batched_and_placeholder_rows_need_no_process(self):
+        model=service_manager.ServiceModel();self.run.reset_mock()
+        pending=model.records(query_runtime=False)
+        self.assertTrue(any(row['state']=='checking...' for row in pending))
+        self.run.assert_not_called()
+        def query(args, **kwargs):
+            self.assertEqual(args[:2],['systemctl','is-active'])
+            return subprocess.CompletedProcess(args,0,stdout='\n'.join('inactive' if unit=='rauc.service' else 'active' for unit in args[2:]))
+        self.run.side_effect=query
+        rows={row['name']:row for row in model.records()}
+        self.run.assert_called_once()
+        self.assertEqual(rows['ota']['state'],'on-demand')
+        self.assertEqual(rows['wireguard']['state'],'active, active')
+
     def test_disabling_wireguard_keeps_guard_and_failed_stop_does_not_persist(self):
         components.set_enabled('wireguard',False)
         self.run.assert_called_once_with(['systemctl','disable','--now','wg-quick@wg-home.service'],check=True,capture_output=True)
@@ -126,7 +140,7 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('right')
             self.assertEqual(app.focused.id,'configure')
             await pilot.press('right')
-            self.assertEqual(app.focused.id,'refresh')
+            self.assertEqual(app.focused.id,'exit')
 
     async def test_choice_multiline_and_login_dialog_use_native_editing_keys(self):
         app=ServiceApp(model=service_manager.ServiceModel())
@@ -161,10 +175,10 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(110,36)) as pilot:
             await self.settle(app,pilot);await self.select(app,pilot,'cloudflared')
             self.assertEqual(app.focused.id,'services')
-            for expected in ('configure','refresh','finish','quit'):
+            for expected in ('configure','exit'):
                 navigate(app.screen,'right')
                 self.assertEqual(app.focused.id,expected)
-            for expected in ('finish','refresh','configure','services'):
+            for expected in ('configure','services'):
                 navigate(app.screen,'left')
                 self.assertEqual(app.focused.id,expected)
 
@@ -174,6 +188,52 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(110,36)) as pilot:
                 await self.settle(app,pilot)
                 self.assertIn('Slot A',str(app.query_one('#bootchain-summary',Static).content))
+
+    async def test_dashboard_loads_rows_before_runtime_query_and_updates_without_losing_focus(self):
+        model=service_manager.ServiceModel();original=model.records
+        gate=threading.Event();self.addCleanup(gate.set)
+        runtime=['active']
+        def records(query_runtime=True):
+            rows=original(query_runtime=False)
+            if query_runtime:
+                gate.wait(5)
+                for row in rows:
+                    if row['name']=='cloudflared': row['state']=runtime[0]
+            return rows
+        app=ServiceApp(model=model)
+        with patch.object(model,'records',side_effect=records),patch.object(ServiceApp,'REFRESH_SECONDS',0.2):
+            async with app.run_test(size=(110,36)) as pilot:
+                await pilot.pause()
+                table=app.query_one('#services',DataTable)
+                self.assertGreater(table.row_count,0)
+                self.assertTrue(app.refreshing)
+                await self.select(app,pilot,'cloudflared')
+                self.assertFalse(app.query_one('#configure',Button).disabled)
+                row_before=table.cursor_row
+                gate.set();await pilot.pause(0.4)
+                self.assertEqual(app.records['cloudflared']['state'],'active')
+                runtime[0]='failed';await pilot.pause(0.5)
+                self.assertEqual(app.records['cloudflared']['state'],'failed')
+                self.assertEqual(table.cursor_row,row_before)
+                self.assertIs(app.focused,table)
+                self.assertEqual([button.id for button in app.query(Button)],['configure','exit'])
+
+    async def test_single_exit_finishes_incomplete_setup_and_checks_ready_device(self):
+        app=ServiceApp(model=service_manager.ServiceModel(),first_boot=True)
+        with patch.object(service_manager,'finish_setup') as finish,patch.object(service_diagnostics,'health') as health:
+            async with app.run_test(size=(110,36)) as pilot:
+                await self.settle(app,pilot)
+                await pilot.click('#exit');await pilot.pause()
+                self.assertIsInstance(app.screen,Confirm)
+                await pilot.click('#confirm-apply');await pilot.pause()
+            finish.assert_called_once();health.assert_not_called()
+        (self.config/'initialized').write_text('1\n')
+        app=ServiceApp(model=service_manager.ServiceModel())
+        with patch.object(service_manager,'finish_setup') as finish,patch.object(service_diagnostics,'health') as health:
+            async with app.run_test(size=(110,36)) as pilot:
+                await self.settle(app,pilot)
+                await pilot.click('#exit');await pilot.pause()
+            health.assert_called_once();finish.assert_not_called()
 
     async def test_status_dialog_is_immediate_and_can_escape_while_query_runs(self):
         app=ServiceApp(model=service_manager.ServiceModel())
@@ -204,6 +264,7 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cloudflare_diagnostics_are_on_its_form_and_exit_checks_health(self):
         app=ServiceApp(model=service_manager.ServiceModel())
+        (self.config/'initialized').write_text('1\n')
         with patch.object(service_diagnostics,'logs',return_value='Fixture tunnel log'), \
                 patch.object(service_diagnostics,'health',side_effect=ValueError('Cloudflare HTTPS failed')):
             async with app.run_test(size=(110,36)) as pilot:
