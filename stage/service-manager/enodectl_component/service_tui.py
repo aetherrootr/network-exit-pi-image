@@ -3,6 +3,7 @@ import sys
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Button, DataTable, Static
 from textual.worker import get_current_worker
@@ -17,7 +18,7 @@ import status_summary
 class ServiceApp(App):
     TITLE = 'Embedded Node Controller'
     REFRESH_SECONDS = 5
-    BINDINGS = [('ctrl+q', 'quit', 'Exit'), ('f5', 'reload', 'Refresh'), *NAVIGATION_BINDINGS]
+    BINDINGS = [Binding('ctrl+q', 'quit', 'Exit', priority=True), ('f5', 'reload', 'Refresh'), *NAVIGATION_BINDINGS]
     CSS = '''
     Screen { padding: 1 2; }
     #title { height: 2; text-style: bold; }

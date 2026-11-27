@@ -4,6 +4,7 @@ import os
 import threading
 import unittest
 from unittest.mock import Mock
+from unittest.mock import patch
 
 from textual import events
 from enodectl_core.terminal import TerminalDriver, TerminalInput
@@ -24,6 +25,24 @@ class TerminalInputTests(unittest.TestCase):
         self.assertEqual([message.character for message in messages], ['\u5bb6'])
         messages = list(reader.feed(b'\x1b[200~A\x8cB\x1b[201~'))
         self.assertEqual([message.text for message in messages if isinstance(message, events.Paste)], ['AB'])
+
+    def test_missing_paste_end_recovers_ctrl_q_and_arrows_without_emitting_partial_text(self):
+        reader=TerminalInput()
+        with patch('enodectl_core.terminal.monotonic',side_effect=[0,0.1,0.2,2.3,2.4]):
+            self.assertEqual(list(reader.feed(b'\x1b[20')),[])
+            self.assertEqual(list(reader.feed(b'0~partial-private-input')),[])
+            self.assertEqual(list(reader.feed(b'\x11')),[])
+            self.assertEqual(list(reader.tick()),[])
+            self.assertEqual([message.key for message in reader.feed(b'\x11\x1b[A')],['ctrl+q','up'])
+
+    def test_complete_split_paste_is_not_discarded(self):
+        reader=TerminalInput()
+        with patch('enodectl_core.terminal.monotonic',side_effect=[0,0.5,1]):
+            self.assertEqual(list(reader.feed(b'\x1b[200~hello')),[])
+            self.assertEqual(list(reader.feed(b' world\x1b[20')),[])
+            messages=list(reader.feed(b'1~\x11'))
+        self.assertEqual([m.text for m in messages if isinstance(m,events.Paste)],['hello world'])
+        self.assertEqual([m.key for m in messages if isinstance(m,events.Key)],['ctrl+q'])
 
     def test_driver_uses_sgr_mouse_without_hover_flooding(self):
         driver = object.__new__(TerminalDriver)

@@ -2,6 +2,7 @@
 from codecs import getincrementaldecoder
 import os
 import selectors
+from time import monotonic
 
 from textual import events
 from textual._parser import ParseError
@@ -16,9 +17,43 @@ def clean_input(text):
 
 
 class TerminalInput:
+    PASTE_IDLE_SECONDS = 2.0
+    PASTE_MAX_SECONDS = 30.0
+    PASTE_START = '\x1b[200~'
+    PASTE_END = '\x1b[201~'
+
     def __init__(self, debug=False):
+        self.debug = debug
         self.decoder = getincrementaldecoder('utf-8')(errors='surrogateescape')
         self.parser = XTermParser(debug)
+        self.paste_started = None
+        self.paste_last = None
+        self.marker_tail = ''
+
+    def expire_paste(self, now):
+        if self.paste_started is None: return
+        if now - self.paste_last < self.PASTE_IDLE_SECONDS and now - self.paste_started < self.PASTE_MAX_SECONDS: return
+        # Textual waits indefinitely for a missing bracketed-paste terminator,
+        # swallowing later keyboard/mouse input. Discard the incomplete paste
+        # without emitting its contents and continue parsing fresh input.
+        previous = self.parser
+        self.close()
+        self.parser = XTermParser(self.debug)
+        for attribute in ('terminal_size', 'terminal_pixel_size', 'mouse_pixels', 'last_x', 'last_y'):
+            if hasattr(previous, attribute): setattr(self.parser, attribute, getattr(previous, attribute))
+        self.decoder.reset()
+        self.paste_started = self.paste_last = None
+        self.marker_tail = ''
+
+    def observe_paste(self, text, now):
+        # Keep only the short suffix needed for a marker split across reads.
+        # Do not log input or retain the full pasted configuration here.
+        combined = self.marker_tail + text
+        start, end = combined.rfind(self.PASTE_START), combined.rfind(self.PASTE_END)
+        if start > end and self.paste_started is None: self.paste_started = now
+        elif end > start: self.paste_started = self.paste_last = None
+        if self.paste_started is not None: self.paste_last = now
+        self.marker_tail = combined[-(len(self.PASTE_START) - 1):]
 
     @staticmethod
     def filtered(messages):
@@ -31,11 +66,17 @@ class TerminalInput:
             yield message
 
     def feed(self, data):
+        now = monotonic()
+        self.expire_paste(now)
         text = self.decoder.decode(data)
         # Empty text can be an incomplete valid UTF-8 character, not EOF.
-        if text: yield from self.filtered(self.parser.feed(text))
+        if text:
+            self.observe_paste(text, now)
+            yield from self.filtered(self.parser.feed(text))
 
-    def tick(self): yield from self.filtered(self.parser.tick())
+    def tick(self):
+        self.expire_paste(monotonic())
+        yield from self.filtered(self.parser.tick())
 
     def close(self):
         try:
