@@ -28,6 +28,29 @@ def factory_table():
 
 
 class StateCapacityTests(unittest.TestCase):
+    def test_state_mount_matches_kernel_device_even_with_stale_initramfs_source(self):
+        device = os.makedev(179, 4)
+        mount = {'source': '/root/dev/mmcblk0p4', 'fstype': 'ext4', 'maj:min': '179:4'}
+        capacity.validate_mount([mount], device)
+        for invalid in ([], [mount, mount], [{**mount, 'maj:min': '179:3'}],
+                        [{**mount, 'fstype': 'tmpfs'}], [{'fstype': 'ext4'}]):
+            with self.assertRaises(ValueError): capacity.validate_mount(invalid, device)
+
+    def test_boot_prefix_allows_chs_normalization_but_only_state_lba_size_changes(self):
+        before = bytearray(1024)
+        before[510:512] = b'\x55\xaa'
+        after = before.copy()
+        for index in range(4):
+            offset = 446 + 16 * index
+            after[offset+1:offset+4] = b'\x03\xd0\xff'
+            after[offset+5:offset+8] = b'\x03\xd0\xff'
+        after[506:510] = b'\x01\x02\x03\x04'
+        capacity.validate_boot_prefix(before, after)
+        for offset in (0, 440, 446, 450, 454, 458, 502, 510, 600):
+            invalid = after.copy()
+            invalid[offset] ^= 1
+            with self.assertRaises(ValueError): capacity.validate_boot_prefix(before, invalid)
+
     def test_rejects_small_cards_or_unexpected_layout_without_writing(self):
         original = factory_table()
         minimum = (original['partitions'][3]['start'] + capacity.MIN_STATE_SECTORS) * 512
@@ -55,10 +78,24 @@ class StateCapacityTests(unittest.TestCase):
                 patch.object(capacity, 'discover', return_value=(Path('/dev/fake-card'), Path('/dev/fake-state'), 16_000_000_000)), \
                 patch.object(capacity, 'grow_partition', return_value=False), \
                 patch.object(capacity, 'table', return_value=layout), \
-                patch.object(capacity.subprocess, 'run', side_effect=run):
+                patch.object(capacity.subprocess, 'run', side_effect=run), \
+                patch.object(capacity, 'resize_filesystem') as resize:
             capacity.grow(UUID)
-        self.assertIn(['resize2fs', '/dev/fake-state'], commands)
+        resize.assert_called_once_with(Path('/dev/fake-state'))
         self.assertFalse(any(command[0] in ('mkfs', 'mkfs.ext4') for command in commands))
+
+    def test_online_resize_uses_a_private_mount_namespace(self):
+        from types import SimpleNamespace
+        device = Path('/dev/fake-state')
+        with patch.object(Path, 'stat', return_value=SimpleNamespace(st_rdev=os.makedev(179, 4))), \
+                patch.object(capacity.tempfile, 'TemporaryDirectory') as directory, \
+                patch.object(capacity.subprocess, 'run') as run:
+            directory.return_value.__enter__.return_value = '/run/test-state'
+            capacity.resize_filesystem(device)
+        args = run.call_args.args[0]
+        self.assertEqual(args[:5], ['unshare', '--mount', '--propagation', 'private', '--'])
+        self.assertIn('resize2fs "$1"', args[7])
+        self.assertEqual(args[-3:], ['/dev/fake-state', '/run/test-state', '179:4'])
 
     def test_real_ext4_growth_preserves_identity_and_file_contents(self):
         # Offline regular-file test. Online resizing remains a board acceptance test.

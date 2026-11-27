@@ -20,7 +20,25 @@ state_device=$(blkid -t "PARTUUID=$state_uuid" -o device)
 [ -b "$state_device" ] || panic 'STATE partition is unavailable'
 state_root="$rootmnt/var/lib/network-exit"
 mkdir -p "$state_root"
-mount -t ext4 -o rw,noatime,nodev,nosuid "$state_device" "$state_root" || panic 'Cannot mount STATE; refusing to reset device identities'
+# overlayroot can move devtmpfs underneath the new root before this script.
+# Keep the recorded source resolvable after switch_root: RAUC and resize2fs
+# use it to identify the backing block device of the mounted filesystem.
+state_source="$state_device"
+state_dev_alias=no
+case "$state_device" in
+    "$rootmnt"/dev/*)
+        state_source=${state_device#"$rootmnt"}
+        if [ ! -b "$state_source" ]; then
+            mount --bind "$rootmnt/dev" /dev || panic 'Cannot access STATE device by its final root path'
+            state_dev_alias=yes
+        fi
+        [ -b "$state_source" ] && [ "$(stat -Lc '%t:%T' "$state_source")" = "$(stat -Lc '%t:%T' "$state_device")" ] || panic 'STATE device alias does not identify the selected partition'
+        ;;
+esac
+mount --no-canonicalize -t ext4 -o rw,noatime,nodev,nosuid "$state_source" "$state_root" || panic 'Cannot mount STATE; refusing to reset device identities'
+if [ "$state_dev_alias" = yes ]; then
+    umount /dev || panic 'Cannot remove temporary initramfs device mount'
+fi
 mkdir -p "$state_root/config" "$state_root/tailscale" "$state_root/ssh" "$state_root/rauc" "$state_root/update-cache"
 chmod 700 "$state_root/config" "$state_root/tailscale" "$state_root/ssh" "$state_root/update-cache"
 if [ ! -e "$state_root/machine-id" ]; then

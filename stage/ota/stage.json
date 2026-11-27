@@ -13,6 +13,7 @@
   ],
   "packages": [
     "rauc",
+    "rauc-service",
     "openssl",
     "squashfs-tools"
   ],
