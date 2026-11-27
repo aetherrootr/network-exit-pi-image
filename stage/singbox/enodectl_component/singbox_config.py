@@ -16,6 +16,9 @@ def load():
 
 def save(values):
     text = values['config'].strip()
+    # Reapplying a blank form must not rotate an already-generated password
+    # or silently replace an imported profile.
+    text = text or load()['config']
     config = json.loads(text) if text else private_proxy('127.0.0.1')
     content = json.dumps(config, indent=2) + '\n'
     with tempfile.TemporaryDirectory(dir=components.STATE) as directory:

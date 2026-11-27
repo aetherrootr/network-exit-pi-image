@@ -71,6 +71,8 @@ class ServiceConfigurationTests(unittest.TestCase):
         saved=json.loads(path.read_text());secret=saved['inbounds'][0]['users'][0]['password']
         singbox_config.save(singbox_config.load())
         self.assertEqual(json.loads(path.read_text())['inbounds'][0]['users'][0]['password'],secret)
+        singbox_config.save({'config':''})
+        self.assertEqual(json.loads(path.read_text())['inbounds'][0]['users'][0]['password'],secret)
         before=path.read_bytes();self.run.return_value=subprocess.CompletedProcess([],1)
         with self.assertRaisesRegex(ValueError,'rejected'):singbox_config.save({'config':'{}'})
         self.assertEqual(path.read_bytes(),before)

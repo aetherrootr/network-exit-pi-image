@@ -476,6 +476,23 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 await self.select(app,pilot,'ssh')
                 self.assertFalse(app.query_one('#configure',Button).disabled)
 
+    async def test_singbox_generated_profile_is_displayed_and_reapply_keeps_password(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        async with app.run_test(size=(110,42)) as pilot:
+            await self.settle(app,pilot)
+            await self.select(app,pilot,'singbox')
+            await pilot.click('#configure');await self.settle(app,pilot)
+            form=app.screen
+            form.query_one('#form-startup',Select).value=True
+            await pilot.click('#form-save');await self.confirm(app,pilot)
+            path=self.config/'sing-box.json'
+            saved=path.read_text()
+            self.assertEqual(form.query_one('#field-config',TextArea).text,saved)
+            self.assertFalse(form.has_unsaved())
+            await pilot.click('#form-save');await self.confirm(app,pilot)
+            self.assertEqual(path.read_text(),saved)
+            self.assertEqual(form.query_one('#field-config',TextArea).text,saved)
+
     async def test_system_views_are_read_only_and_refresh_from_backend(self):
         app=ServiceApp(model=service_manager.ServiceModel())
         with ExitStack() as stack:

@@ -258,7 +258,7 @@ class FormScreen(Screen):
     FormScreen Horizontal { height: 3; }
     '''
 
-    def __init__(self, title, fields, load, save, details=None, help_text='', result_dialog=False, logs=None, service_name=None):
+    def __init__(self, title, fields, load, save, details=None, help_text='', result_dialog=False, logs=None, service_name=None, reload_after_apply=False):
         super().__init__()
         self.title, self.fields = title, fields
         self.loader, self.saver, self.detailer = load, save, details
@@ -266,6 +266,7 @@ class FormScreen(Screen):
         self.result_dialog = result_dialog
         self.log_loader = logs
         self.service_name = service_name
+        self.reload_after_apply = reload_after_apply
         self.startup_enabled = None
         self.busy = False
         self.loaded = {}
@@ -385,10 +386,18 @@ class FormScreen(Screen):
                 from service_manager import apply_service_settings
                 result = apply_service_settings(self.service_name, startup, changed, lambda: self.saver(values))
             else: result = self.saver(values)
-            self.app.call_from_thread(self.applied, result)
+            if self.reload_after_apply:
+                saved = self.loader()
+                self.app.call_from_thread(self.applied_with_values, result, saved)
+            else:
+                self.app.call_from_thread(self.applied, result)
         except Exception as exc:
             if self.service_name: self.app.call_from_thread(self.refresh_startup)
             self.app.call_from_thread(self.failed, exc)
+
+    def applied_with_values(self, result, saved):
+        self.fill(saved)
+        self.applied(result)
 
     def applied(self, result):
         from service_config import TrialChange
