@@ -22,6 +22,7 @@ from service_tui import ServiceApp
 from ssh_editor import SSHEditor
 from ssh_view import SSHScreen
 from enodectl_core.textual_ui import FormScreen, Confirm, ReadOnlyScreen, Details, Field, error_message, navigate
+from enodectl_core.terminal import TerminalInput
 from network_view import WiFiScanScreen
 
 
@@ -511,6 +512,127 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 await self.select(app,pilot,'ssh')
                 self.assertFalse(app.query_one('#configure',Button).disabled)
 
+    async def test_raw_fragmented_paste_and_navigation_on_every_registered_view(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        reader=TerminalInput()
+        model=Mock();model.records.return_value=[{'id':'fixture-key','role':'login','type':'ssh-ed25519',
+                                                'fingerprint':'SHA256:fixture','comment':'fixture','restricted':False}]
+        model.changed.return_value=False
+
+        async def paste(text, key=b''):
+            # Exercise the terminal parser -> App -> focused widget path, not
+            # Pilot's synthetic character entry or direct widget assignment.
+            clock=[0.0]
+            with patch('enodectl_core.terminal.monotonic',side_effect=lambda:clock[0]):
+                for message in reader.feed(b'\x1b[20'): app.post_message(message)
+                clock[0]=0.05
+                for message in reader.feed(b'0~'+text.encode()+b'\x1b[20'): app.post_message(message)
+                clock[0]=0.5
+                for message in reader.tick(): app.post_message(message)
+                clock[0]=0.6
+                for message in reader.feed(b'1~'+key): app.post_message(message)
+            await pilot.pause()
+
+        async def edit_form(form):
+            for widget in form.query('Input, TextArea'):
+                if not widget.display: continue
+                with self.subTest(page=form.title,field=widget.id):
+                    form.set_focus(widget);await pilot.pause()
+                    if isinstance(widget,TextArea):
+                        widget.load_text('');await pilot.press('enter')
+                        self.assertFalse(widget.read_only)
+                        text='{"fixture": "家",\n "lines": [1, 2]}\n'
+                        await paste(text)
+                        self.assertEqual(widget.text,text)
+                        await pilot.press('escape');self.assertTrue(widget.read_only)
+                        await paste('ignored')
+                        self.assertEqual(widget.text,text)
+                        await pilot.press('down');self.assertIsNot(form.focused,widget)
+                    else:
+                        widget.value=''
+                        await paste('fixture-家\r\nignored', b'\x1b[B')
+                        self.assertEqual(widget.value,'fixture-家')
+                        self.assertIsNot(form.focused,widget)
+            # Even when paste targets a non-editable action, the following
+            # navigation key must work and no form may be applied.
+            form.set_focus(form.query_one('#form-back',Button));await pilot.pause()
+            await paste('ignored',b'\x1b[D')
+            self.assertNotEqual(form.focused.id,'form-back')
+            await pilot.press('escape');await pilot.pause()
+            self.assertIsInstance(app.screen,Confirm)
+            await paste('ignored',b'\x1b[C')
+            self.assertEqual(app.focused.id,'confirm-apply')
+            await pilot.press('enter');await self.settle(app,pilot)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch('tailscale_config.load',return_value={'provider':'headscale','headscale_url':'','advertise_exit':False}))
+            stack.enter_context(patch('ssh_view.SSHEditor',return_value=model))
+            stack.enter_context(patch('network_management.scan',return_value=[]))
+            stack.enter_context(patch('service_diagnostics.status',return_value='Fixture status'))
+            stack.enter_context(patch('service_diagnostics.logs',return_value='Fixture logs'))
+            for module in ('state_policy','overlay_policy','watchdog_policy','power_status'):
+                stack.enter_context(patch(module+'_view.details',return_value='Fixture status'))
+            async with app.run_test(size=(120,42)) as pilot:
+                await self.settle(app,pilot)
+                views={name for name,record in app.records.items() if record.get('view')}
+                self.assertEqual(views,{'tailscale','wireguard','cloudflared','singbox','ddns','network','ssh',
+                                        'ota','system-state','system-overlay','system-watchdog','system-power'})
+                for name in sorted(views):
+                    with self.subTest(page=name):
+                        await self.select(app,pilot,name)
+                        await pilot.click('#configure');await self.settle(app,pilot)
+                        form=app.screen
+                        if isinstance(form,FormScreen):
+                            if name=='network':
+                                form.set_focus(form.query_one('#scan-wifi',Button));await pilot.press('enter');await self.settle(app,pilot)
+                                self.assertIsInstance(app.screen,WiFiScanScreen)
+                                await paste('ignored',b'\x1b[C')
+                                self.assertEqual(app.focused.id,'scan-back')
+                                await pilot.press('enter');await pilot.pause()
+                                self.assertIs(app.screen,form)
+                            # Status/log dialogs have no editable fields.
+                            form.detailer=lambda:'Fixture status'
+                            await pilot.click('#form-details');await self.settle(app,pilot)
+                            self.assertIsInstance(app.screen,Details)
+                            await paste('ignored',b'\x1b[D')
+                            self.assertEqual(app.focused.id,'details-refresh')
+                            await pilot.press('escape');await pilot.pause()
+                            self.assertIs(app.screen,form)
+                            if form.log_loader:
+                                form.log_loader=lambda:'Fixture logs'
+                                await pilot.click('#form-logs');await self.settle(app,pilot)
+                                await paste('ignored',b'\x1b[D')
+                                self.assertEqual(app.focused.id,'details-refresh')
+                                await pilot.press('escape');await pilot.pause()
+                            await edit_form(form)
+                        elif isinstance(form,SSHScreen):
+                            await paste('ignored',b'\x1b[C')
+                            self.assertEqual(app.focused.id,'ssh-add-key')
+                            for button in ('ssh-details','ssh-status','ssh-logs'):
+                                await pilot.click('#'+button);await self.settle(app,pilot)
+                                self.assertIsInstance(app.screen,Details)
+                                if app.screen.loader:
+                                    await paste('ignored',b'\x1b[D')
+                                    self.assertEqual(app.focused.id,'details-refresh')
+                                else:
+                                    await paste('ignored')
+                                await pilot.press('escape');await pilot.pause()
+                                self.assertIs(app.screen,form)
+                            for button in ('ssh-add-key','ssh-add-ca'):
+                                await pilot.click('#'+button);await self.settle(app,pilot)
+                                self.assertIsInstance(app.screen,FormScreen)
+                                await edit_form(app.screen)
+                                self.assertIs(app.screen,form)
+                            await pilot.press('escape');await self.settle(app,pilot)
+                        else:
+                            self.assertIsInstance(form,ReadOnlyScreen)
+                            await paste('ignored',b'\x1b[D')
+                            self.assertEqual(app.focused.id,'policy-refresh')
+                            await pilot.press('escape');await self.settle(app,pilot)
+                        self.assertEqual(len(app.screen_stack),1)
+                model.add.assert_not_called();model.save.assert_not_called()
+                self.assertFalse(list(self.config.iterdir()),'paste must not apply any settings')
+
     async def test_singbox_generated_profile_is_displayed_and_reapply_keeps_password(self):
         app=ServiceApp(model=service_manager.ServiceModel())
         async with app.run_test(size=(110,42)) as pilot:
@@ -533,7 +655,7 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
         with ExitStack() as stack:
             loaders=[]
             for name in ('state_policy','overlay_policy','watchdog_policy','power_status'):
-                loaders.append(stack.enter_context(patch(name+'.details',return_value='Fixture system status')))
+                loaders.append(stack.enter_context(patch(name+'_view.details',return_value='Fixture system status')))
             async with app.run_test(size=(110,42)) as pilot:
                 await self.settle(app,pilot)
                 for name in ('system-state','system-overlay','system-watchdog','system-power'):
