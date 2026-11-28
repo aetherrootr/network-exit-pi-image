@@ -6,6 +6,11 @@ set -euo pipefail
   exit 2
 }
 source "${ENODECTL_STAGE_ROOT:?}/common.sh"
+# Prevent vendor package-update checks and binary APT caches from exhausting
+# the bounded writable root at boot, even when no packages are installed.
+test ! -e /etc/cron.d/armbian-updates
+apt-config dump | grep -Fx 'Dir::Cache::pkgcache "";'
+apt-config dump | grep -Fx 'Dir::Cache::srcpkgcache "";'
 # The builder mounts a fresh /run, including when openssh-server was already
 # installed in the base image. sshd -T still requires its privilege-separation dir.
 install -d -m 755 /run/sshd
@@ -38,6 +43,8 @@ for config in /boot/config-*; do
   if [[ -d $initramfs_dir/main ]]; then initramfs_root=$initramfs_dir/main; fi
   chroot "$initramfs_root" /bin/sh -e <<'VERIFY_INITRAMFS'
     export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+    . /conf/conf.d/90-enodectl-overlay
+    test "$LIBMOUNT_FORCE_MOUNT2" = always
     test -n "$BASH_VERSION"
     test "$(/bin/sh -c 'trap "echo ok" EXIT')" = ok
     if command -v busybox; then echo 'Unexpected BusyBox in initramfs' >&2; exit 1; fi
@@ -70,6 +77,7 @@ sh -n /etc/initramfs-tools/hooks/network-exit
 sh -n /etc/initramfs-tools/scripts/init-bottom/zz-network-exit-state
 python3 -c 'import asyncio, ssl'
 /usr/local/sbin/enodectl --help
+/usr/local/bin/enodectl --help
 /usr/local/sbin/enodectl config --help
 sh -n /etc/profile.d/90-enodectl-firstboot.sh
 bash -n /usr/lib/network-exit/node-watchdog

@@ -3,6 +3,7 @@ from enodectl_core.textual_ui import Field, FormScreen
 from textual.widgets import Button, Input, Select, Static
 import ota_status
 import ota_update_config as backend
+import service_diagnostics as diagnostics
 
 
 class OTAInstallScreen(FormScreen):
@@ -35,5 +36,5 @@ def screen():
         Field('skip_signature_verification', 'Skip signature verification for this install', 'bool'),
         Field('confirmation', f'Recovery only: type exactly `{backend.CONFIRMATION}` (without backticks)'),
         Field('retry_failed', 'Retry after a previously failed trial', 'bool'),
-    ], backend.load, backend.save, ota_status.details,
+    ], backend.load, backend.save, ota_status.details, logs=lambda: diagnostics.logs('ota'),
         help_text='Signature verification defaults to ON. Bypass requires a local plain rootfs-only bundle and the exact phrase. It does not authenticate the image. Device/size/checksum/readback and A/B trial checks remain active. This screen never reboots automatically.')

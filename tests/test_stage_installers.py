@@ -42,12 +42,26 @@ class StageInstallerTests(unittest.TestCase):
             stage = root / 'stage/ota'
             shutil.copytree(ROOT / 'stage/ota', stage, ignore=shutil.ignore_patterns('__pycache__'))
             (root / 'stage/common.sh').write_text('install_declared_packages() { :; }\n')
+            # The mocked package installer must model the files supplied by
+            # Debian's rauc-service package. Verify the real installer rejects
+            # a missing activation file before testing a complete installation.
+            rauc_assets = [root / 'usr/lib/systemd/system/rauc.service',
+                           root / 'usr/share/dbus-1/system-services/de.pengutronix.rauc.service',
+                           root / 'usr/share/dbus-1/system.d/de.pengutronix.rauc.conf']
+            for asset in rauc_assets:
+                asset.parent.mkdir(parents=True, exist_ok=True)
+                asset.touch()
             service = root / 'usr/bin/systemctl'
             service.write_text('#!/bin/bash\nprintf "%s\\n" "$@" >> /service-actions\n')
             service.chmod(0o755)
             environment = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'ENODECTL_BUILD_CHROOT': '1', 'ENODECTL_STAGE_ROOT': '/stage'}
             self.assertFalse((root / 'etc/rauc').exists())
             command = [*prefix, '--root', str(root), '--wd', '/stage/ota', '/bin/bash', './install.sh']
+            rauc_assets[-1].unlink()
+            result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0, 'Installer accepted missing RAUC D-Bus policy')
+            self.assertFalse((root / 'service-actions').exists())
+            rauc_assets[-1].touch()
             for attempt in range(2):
                 result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=15)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -57,4 +71,4 @@ class StageInstallerTests(unittest.TestCase):
                 self.assertEqual(installed.read_bytes(), (stage / 'config/update-source.json').read_bytes())
                 self.assertEqual(installed.stat().st_mode & 0o777, 0o644)
             self.assertEqual((root / 'service-actions').read_text().splitlines(),
-                             ['enable', 'network-exit-confirm.timer', 'network-exit-trial-deadline.timer'] * 2)
+                             ['disable', 'rauc.service', 'enable', 'network-exit-confirm.timer', 'network-exit-trial-deadline.timer'] * 2)

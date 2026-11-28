@@ -11,6 +11,15 @@ def load():
             'tcp_ports': ','.join(map(str, config['tcp_ports'])), 'udp_ports': ','.join(map(str, config['udp_ports']))}
 
 
+def scan(interface):
+    # A scan may temporarily raise a down radio. Serialize it against network
+    # trials and background provisioning so it cannot undo a concurrent change.
+    with network.lock():
+        if (network.STATE / 'network-pending.json').exists():
+            raise ValueError('Finish or cancel the active network trial before scanning Wi-Fi.')
+        return connectivity.scan(interface)
+
+
 def save(values):
     config = {**{name: values[name] for name in network.DEFAULT},
               'ssh_sources': [v.strip() for v in values['ssh_sources'].split(',') if v.strip()],

@@ -37,5 +37,5 @@ def publish(name, files, apply=None):
                 subprocess.run(['systemctl', 'restart', *components.UNITS[name]], check=True, capture_output=True)
             except (OSError, subprocess.SubprocessError): pass
         # Old settings remain on disk. Completion stays invalid after an apply
-        # failure; the operator can retry and run Finish setup once healthy.
+        # failure; the operator can retry and run Exit once healthy.
         raise ValueError('Configuration could not be applied; previous files restored. Verify service state and retry.') from None

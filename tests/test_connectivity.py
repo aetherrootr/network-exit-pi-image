@@ -81,6 +81,58 @@ class ConnectivityTests(unittest.TestCase):
         data = json.loads(connectivity.netplan(self.profile(wifi_interface='wlan0')))
         self.assertEqual(list(data['network']['wifis']), ['wlan0'])
 
+    def test_wifi_scan_parses_ssid_security_signal_and_deduplicates(self):
+        output = r'''BSS 00:00:00:00:00:01(on wlan0)
+\tsignal: -65.00 dBm
+\tSSID: Home \xe5\xae\xb6
+\tRSN: * Version: 1
+\t\t * Authentication suites: PSK SAE
+BSS 00:00:00:00:00:02(on wlan0)
+\tsignal: -45.00 dBm
+\tSSID: Home \xe5\xae\xb6
+\tRSN: * Version: 1
+\t\t * Authentication suites: PSK SAE
+BSS 00:00:00:00:00:03(on wlan0)
+\tsignal: -33.00 dBm
+\tSSID: Cafe
+BSS 00:00:00:00:00:04(on wlan0)
+\tSSID: Hidden\x00
+BSS 00:00:00:00:00:05(on wlan0)
+\tSSID: WPA-only
+\tWPA: * Version: 1
+\t\t * Authentication suites: PSK
+'''.replace(r'\t','\t')
+        self.assertEqual(connectivity.parse_scan(output), [
+            {'ssid': 'Cafe', 'signal': -33.0, 'modes': ()},
+            {'ssid': 'Home \u5bb6', 'signal': -45.0, 'modes': ('psk','sae')},
+            {'ssid': 'WPA-only', 'signal': -999.0, 'modes': ()}])
+
+    def test_scan_temporarily_raises_down_radio_and_restores_on_error(self):
+        self.run.side_effect = [subprocess.CompletedProcess([],0,stdout='[{"flags": []}]'),
+                                subprocess.CompletedProcess([],0,stdout=''),
+                                subprocess.CompletedProcess([],1,stdout='',stderr='Device or resource busy'),
+                                subprocess.CompletedProcess([],0,stdout='')]
+        with self.assertRaisesRegex(ValueError, 'Device or resource busy'): connectivity.scan('auto')
+        self.assertEqual([call.args[0] for call in self.run.call_args_list], [
+            ['ip','-j','link','show','dev','wlan0'], ['ip','link','set','dev','wlan0','up'],
+            ['iw','dev','wlan0','scan'], ['ip','link','set','dev','wlan0','down']])
+
+    def test_scan_never_changes_an_already_up_radio(self):
+        self.run.side_effect = [subprocess.CompletedProcess([],0,stdout='[{"flags": ["UP"]}]'),
+                                subprocess.CompletedProcess([],0,stdout='BSS fixture\n\tSSID: Fixture\n\tRSN:\n\t\t * Authentication suites: SAE')]
+        self.assertEqual(connectivity.scan('wlan0')[0]['modes'], ('sae',))
+        self.assertEqual([call.args[0] for call in self.run.call_args_list], [
+            ['ip','-j','link','show','dev','wlan0'], ['iw','dev','wlan0','scan']])
+
+    def test_scan_does_not_interfere_with_pending_network_trial(self):
+        (self.state/'network-pending.json').write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'active network trial'): network_management.scan('auto')
+        self.run.assert_not_called()
+
+    def test_network_status_explains_missing_default_route(self):
+        self.run.return_value = subprocess.CompletedProcess([],0,stdout='192.168.77.0/24 dev end0\n',stderr='')
+        self.assertIn('No IPv4 or IPv6 default route', '\n'.join(network.diagnostics()))
+
     def test_cancel_and_timeout_restore_private_profile_and_generated_netplan(self):
         first = self.profile()
         token = network.begin(dict(network.DEFAULT), link_settings=first)

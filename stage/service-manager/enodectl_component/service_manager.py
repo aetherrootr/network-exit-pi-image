@@ -6,56 +6,91 @@ from enodectl_core import registry
 
 class ServiceModel:
     def __init__(self):
-        self.original = {}
-        self.draft = {}
         self.refresh()
 
-    def refresh(self, preserve=False):
+    def refresh(self):
         saved = components.choices()
-        current = {s['name']: bool(s.get('mandatory') or saved.get(s['name'], False)) for s in registry.services()}
-        changes = {name: value for name, value in self.draft.items() if self.original.get(name) != value} if preserve else {}
-        self.original = current
-        self.draft = {**current, **changes}
+        self.enabled = {s['name']: bool(s.get('mandatory') or saved.get(s['name'], False)) for s in registry.services()}
 
-    def records(self):
+    def records(self, query_runtime=True):
+        services = registry.services()
+        units = list(dict.fromkeys(unit for service in services for unit in service['units']))
+        states = dict.fromkeys(units, 'checking...')
+        if query_runtime and units:
+            # One systemctl invocation avoids repeated process/DBus startup on
+            # small boards. is-active prints one state per requested unit.
+            try:
+                result = subprocess.run(['systemctl', 'is-active', *units], capture_output=True, text=True, timeout=10, check=False)
+                output = result.stdout.splitlines()
+                states = dict(zip(units, output)) if len(output) == len(units) else dict.fromkeys(units, 'unknown')
+            except (OSError, subprocess.SubprocessError): states = dict.fromkeys(units, 'unavailable')
         rows = []
-        for service in registry.services():
-            states = []
+        for service in services:
+            runtime = []
             for unit in service['units']:
-                try:
-                    result = subprocess.run(['systemctl', 'is-active', unit], capture_output=True, text=True, timeout=10, check=False)
-                    states.append(result.stdout.strip() or 'unknown')
-                except (OSError, subprocess.SubprocessError): states.append('unavailable')
-            rows.append({**service, 'enabled': self.draft[service['name']],
-                         'state': ', '.join(states) if states else 'built-in'})
+                state = states[unit].strip() or 'unknown'
+                runtime.append('on-demand' if unit not in service.get('health_units', service['units']) and state == 'inactive' else state)
+            rows.append({**service, 'enabled': self.enabled[service['name']],
+                         'state': ', '.join(runtime) if runtime else 'built-in'})
         return rows
 
-    def toggle(self, name):
-        spec = components.service_spec(name)
-        if spec.get('mandatory'): raise ValueError('This management/system service is required and cannot be disabled')
-        self.draft[name] = not self.draft[name]
+def change_startup(name, enabled):
+    """Apply one confirmed service-local startup change; never toggle required units."""
+    if name not in components.UNITS:
+        raise ValueError('Required services cannot be enabled or disabled here')
+    if bool(components.choices().get(name)) == bool(enabled): return
+    if enabled: components.validate(name)
+    import setup_state
+    completed = (components.CONFIG / 'initialized').exists()
+    setup_state.invalidate(components.CONFIG)
+    components.set_enabled(name, bool(enabled))
+    if completed:
+        for hook in registry.hooks('before_complete'): hook()
+        setup_state.complete(components.CONFIG)
 
-    def changes(self): return {name: value for name, value in self.draft.items() if self.original[name] != value}
 
-    def apply(self):
-        changes = self.changes()
-        for name, enabled in changes.items():
-            if enabled: components.validate(name)
-        import setup_state
-        completed = (components.CONFIG / 'initialized').exists()
-        if changes: setup_state.invalidate(components.CONFIG)
-        try:
-            for name, enabled in changes.items(): components.set_enabled(name, enabled)
-            if changes and completed:
-                for hook in registry.hooks('before_complete'): hook()
-                setup_state.complete(components.CONFIG)
-        finally: self.refresh()
+def apply_service_settings(name, enabled, config_changed, saver):
+    """One confirmed form submission, with configuration applied in the desired state."""
+    if name not in components.UNITS: raise ValueError('Required services cannot be toggled')
+    previous = bool(components.choices().get(name))
+    enabled = bool(enabled)
+    # Stop first when turning OFF, so saving a profile cannot restart it.
+    if previous and not enabled: change_startup(name, False)
+    try:
+        # ON also reapplies unchanged profiles (e.g. sing-box's default JSON),
+        # while an unchanged OFF form can stop an invalid/unconfigured service.
+        result = saver() if config_changed or enabled else None
+    except Exception:
+        if previous and not enabled:
+            try: change_startup(name, True)
+            except Exception as exc:
+                raise ValueError('Configuration failed; previous startup state could not be restored. Check status and logs.') from exc
+        raise
+    # Save first when turning ON, so startup validates the newly saved profile.
+    if enabled and not previous:
+        try: change_startup(name, True)
+        except Exception as exc:
+            # Enabling may have installed a systemd link before startup failed.
+            # Return the actual/persisted service to OFF if possible.
+            try: components.set_enabled(name, False)
+            except Exception: pass
+            raise ValueError('Configuration retained; service could not be enabled. Check configuration, status and logs.') from exc
+    if enabled != previous or not config_changed:
+        return 'Settings saved. Startup ON; verify service status and logs.' if enabled else 'Settings saved. Startup OFF; service is not running.'
+    return result
 
 
 def ensure_management():
-    for service in registry.services():
-        if service.get('managed_startup'):
-            subprocess.run(['systemctl', 'enable', '--now', *service['units']], check=True, capture_output=True)
+    units = [unit for service in registry.services() if service.get('managed_startup') for unit in service['units']]
+    if not units: return
+    # Avoid repeatedly enabling already working mandatory services on every
+    # interactive login (enable can trigger a relatively expensive daemon reload).
+    try:
+        active = subprocess.run(['systemctl', 'is-active', *units], capture_output=True, text=True, timeout=5, check=False).stdout.splitlines()
+        enabled = subprocess.run(['systemctl', 'is-enabled', *units], capture_output=True, text=True, timeout=5, check=False).stdout.splitlines()
+        if active == ['active'] * len(units) and enabled == ['enabled'] * len(units): return
+    except (OSError, subprocess.SubprocessError): pass
+    subprocess.run(['systemctl', 'enable', '--now', *units], check=True, capture_output=True)
 
 
 def finish_setup():
@@ -70,20 +105,7 @@ def finish_setup():
     setup_state.invalidate(components.CONFIG)
     for hook in registry.hooks('before_services'): hook(chosen)
     ensure_management()
-    for name in components.UNITS: components.set_enabled(name, bool(chosen.get(name)))
+    from service_diagnostics import health
+    health()
     retain_admin_accounts()
     setup_state.complete(components.CONFIG)
-
-
-def open_services(first_boot=False):
-    import os
-    from accounts import initialization_lock
-    if os.geteuid() != 0 or not os.path.ismount(components.STATE):
-        raise ValueError('Run `sudo enodectl service` on a node with STATE mounted')
-    from service_tui import ServiceApp
-    import sys
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
-        raise ValueError('The service dashboard requires an interactive terminal; connect with `ssh -t`')
-    with initialization_lock():
-        ensure_management()
-        return ServiceApp(first_boot=first_boot).run()

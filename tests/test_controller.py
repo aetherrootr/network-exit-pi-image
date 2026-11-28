@@ -101,13 +101,28 @@ class NodeControllerTests(unittest.TestCase):
 
     def test_cli_status_does_not_check_upstream_or_reboot(self):
         with patch.object(update,'latest') as latest, \
-                patch.object(controller.subprocess,'run',return_value=subprocess.CompletedProcess([],0)) as run:
+                patch('status_summary.service_rows',return_value=([('SSH','ON','active','Required')],False)), \
+                redirect_stdout(io.StringIO()) as output:
             self.assertEqual(controller.main(['status']),0)
             latest.assert_not_called()
-            self.assertTrue(any('status' in call.args[0] for call in run.call_args_list))
+            self.assertIn('Bootchain',output.getvalue());self.assertIn('Key services',output.getvalue())
+            self.assertIn('Current slot',output.getvalue());self.assertIn('SSH',output.getvalue())
+            self.assertNotIn('Image stages:',output.getvalue())
         with patch.object(power_control,'reboot_system') as reboot:
             self.assertEqual(controller.main(['reboot','--reason','operator']),0)
             reboot.assert_called_once_with(False,'operator')
+
+    def test_public_admin_command_uses_existing_sudo_policy_from_pi(self):
+        with patch.object(controller.os,'geteuid',return_value=1000), \
+                patch.object(controller.os,'execv') as execute:
+            controller.main(['config'])
+            execute.assert_called_once_with('/usr/bin/sudo',['sudo','--','/usr/local/sbin/enodectl','config'])
+
+    def test_private_backend_never_auto_elevates(self):
+        with patch.object(controller.os,'geteuid',return_value=1000), \
+                patch.object(controller.os,'execv') as execute, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit): controller.main(['--internal','verify-installed'])
+            execute.assert_not_called()
 
     def test_cli_poweroff_is_rejected_without_a_backend_call(self):
         with patch.object(controller.subprocess,'run') as run, redirect_stderr(io.StringIO()) as error:

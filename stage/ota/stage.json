@@ -13,6 +13,7 @@
   ],
   "packages": [
     "rauc",
+    "rauc-service",
     "openssl",
     "squashfs-tools"
   ],
@@ -31,7 +32,7 @@
       "handler": "ota_commands:bootchain_run"
     }
   ],
-  "status": "bootchain:show_status",
+  "status": "bootchain:status",
   "private": {
     "boot-backend": {
       "module": "boot_backend",
@@ -52,6 +53,7 @@
     "units": [
       "rauc.service"
     ],
+    "health_units": [],
     "mandatory": true,
     "kind": "system",
     "view": "ota_status_view:screen"

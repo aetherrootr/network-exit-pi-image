@@ -146,10 +146,7 @@ class FirstBootTests(unittest.TestCase):
             wizard.reset_mock()
             self.assertEqual(controller.main(['config']), 0)
             wizard.assert_called_once_with(first_boot=False)
-            with patch.object(service_manager, 'open_services') as dashboard:
-                self.assertEqual(controller.main(['service']), 0)
-                dashboard.assert_called_once_with()
-            for argv in (['config', 'ssh'], ['config', 'service'], ['config', 'network'], ['init'], ['addpub']):
+            for argv in (['service'], ['config', 'ssh'], ['config', 'service'], ['config', 'network'], ['init'], ['addpub']):
                 with self.subTest(argv=argv), self.assertRaises(SystemExit) as error:
                     controller.main(argv)
                 self.assertEqual(error.exception.code, 2)

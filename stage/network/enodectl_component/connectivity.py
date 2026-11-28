@@ -71,13 +71,85 @@ def prepare(values):
 def wireless_interface(profile):
     candidates = [p.name for p in sorted(SYS_NET.iterdir()) if (p / 'wireless').is_dir()]
     device = profile['wifi_interface']
+    if not candidates:
+        raise ValueError('No Wi-Fi radio detected. Check the driver and radio availability.')
     if device == 'auto':
         if len(candidates) != 1:
-            raise ValueError('Select an explicit Wi-Fi interface when zero or multiple radios are present')
+            raise ValueError('Choose a Wi-Fi interface explicitly: ' + ', '.join(candidates))
         device = candidates[0]
     if device not in candidates:
         raise ValueError('Selected Wi-Fi radio is unavailable; retain Ethernet and check its driver')
     return device
+
+
+def parse_scan(output):
+    """Parse iw BSS records, keeping exact UTF-8 SSIDs and RSN personal modes."""
+    networks = {}
+    record = None
+    rsn = False
+
+    def add():
+        if not record or not record.get('ssid'): return
+        modes = tuple(mode for mode in ('psk', 'sae') if mode in record['modes'])
+        key = (record['ssid'], modes)
+        signal = record['signal']
+        if key not in networks or signal > networks[key]['signal']:
+            networks[key] = {'ssid': record['ssid'], 'signal': signal, 'modes': modes}
+
+    for line in output.splitlines():
+        if line.startswith('BSS '):
+            add()
+            record = {'ssid': '', 'signal': -999.0, 'modes': set()}
+            rsn = False
+            continue
+        if record is None: continue
+        content = line.lstrip()
+        if content.startswith('SSID: '):
+            raw = content[len('SSID: '):].encode('utf-8', errors='surrogateescape')
+            raw = re.sub(rb'\\x([0-9a-fA-F]{2})', lambda m: bytes([int(m[1], 16)]), raw)
+            try: ssid = raw.decode('utf-8')
+            except UnicodeError: continue
+            if 0 < len(raw) <= 32 and ssid.isprintable(): record['ssid'] = ssid
+        elif content.startswith('signal:'):
+            signal = re.match(r'signal:\s*(-?\d+(?:\.\d+)?)\s+dBm', content)
+            if signal: record['signal'] = float(signal[1])
+        elif content.startswith('RSN:'):
+            rsn = True
+        elif not content.startswith('*'):
+            rsn = False
+        elif rsn and content.startswith('* Authentication suites:'):
+            suites = content.split(':', 1)[1].split()
+            if 'PSK' in suites: record['modes'].add('psk')
+            if 'SAE' in suites: record['modes'].add('sae')
+    add()
+    return sorted(networks.values(), key=lambda item: (-item['signal'], item['ssid'], item['modes']))
+
+
+def scan(interface_name):
+    """Scan only the chosen radio; restore its administrative link state."""
+    device = wireless_interface({'wifi_interface': interface_name})
+
+    def command(args, timeout=10):
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='surrogateescape',
+                                    timeout=timeout, check=False, env={**os.environ, 'LC_ALL': 'C'})
+        except subprocess.TimeoutExpired:
+            raise ValueError('Wi-Fi scan timed out. Try again or enter the SSID manually.') from None
+        except OSError as exc:
+            raise ValueError(f'Cannot run Wi-Fi scan tool {args[0]}: {exc.strerror}') from None
+        if result.returncode:
+            reason = result.stderr.strip() or f'exit status {result.returncode}'
+            raise ValueError(f'Wi-Fi scan on {device} failed: {reason}. Check radio/rfkill or retry.')
+        return result.stdout
+
+    links = json.loads(command(['ip', '-j', 'link', 'show', 'dev', device]))
+    if not links: raise ValueError('Selected Wi-Fi radio is unavailable')
+    was_up = 'UP' in links[0].get('flags', [])
+    if not was_up: command(['ip', 'link', 'set', 'dev', device, 'up'])
+    try:
+        return parse_scan(command(['iw', 'dev', device, 'scan'], timeout=20))
+    finally:
+        if not was_up: command(['ip', 'link', 'set', 'dev', device, 'down'])
 
 
 def netplan(profile):

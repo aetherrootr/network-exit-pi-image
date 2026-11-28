@@ -4,8 +4,9 @@ from textual import work
 from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Static
-from enodectl_core.textual_ui import Confirm, Details, Field, FormScreen, display
+from enodectl_core.textual_ui import Confirm, Details, Field, FormScreen, display, error_message
 from ssh_editor import SSHEditor
+import service_diagnostics as diagnostics
 
 
 class SSHScreen(Screen):
@@ -37,10 +38,14 @@ class SSHScreen(Screen):
         yield Static('Loading authorizations...', id='ssh-result', markup=False)
         with Horizontal():
             yield Button('Save authorizations', id='ssh-save', variant='primary')
+            yield Button('Check status', id='ssh-status')
+            yield Button('View logs', id='ssh-logs')
             yield Button('Back', id='ssh-back')
+        yield Static('Up/Down: key | Right: actions | Enter: details/select | Esc: back')
 
     def on_mount(self):
         self.query_one('#keys', DataTable).add_columns('Purpose', 'Type', 'SHA256 fingerprint', 'Comment')
+        self.query_one('#keys', DataTable).focus()
         self.set_busy(True)
         self.load_rows()
 
@@ -69,9 +74,23 @@ class SSHScreen(Screen):
 
     def failed(self, exc):
         self.set_busy(False)
-        self.query_one('#ssh-result', Static).update(Text(display(str(exc))))
+        message = error_message(exc)
+        self.query_one('#ssh-result', Static).update(Text(display(message)))
+        self.app.push_screen(Details(message, title='SSH configuration error'))
 
-    def on_data_table_row_highlighted(self, event): self.selected = str(event.row_key.value)
+    def on_data_table_row_highlighted(self, event):
+        event.stop()
+        self.selected = str(event.row_key.value)
+
+    def show_selected(self):
+        if self.busy or not self.selected: return
+        row = self.records[self.selected]
+        self.app.push_screen(Details('\n'.join(str(k) + ': ' + str(row[k]) for k in ('role', 'type', 'fingerprint', 'comment', 'restricted'))))
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected):
+        event.stop()
+        self.selected = str(event.row_key.value)
+        self.show_selected()
 
     def on_button_pressed(self, event: Button.Pressed):
         if self.busy: return
@@ -83,9 +102,9 @@ class SSHScreen(Screen):
                               lambda: {'source': ''}, lambda values: self.model.add(role, values['source']),
                               help_text='Keys are staged only. Private keys, certificates and imported options are rejected.')
             self.app.push_screen(form, lambda result: self.load_rows())
-        elif id == 'ssh-details' and self.selected:
-            row = self.records[self.selected]
-            self.app.push_screen(Details('\n'.join(str(k) + ': ' + str(row[k]) for k in ('role', 'type', 'fingerprint', 'comment', 'restricted'))))
+        elif id == 'ssh-details': self.show_selected()
+        elif id == 'ssh-status': self.app.push_screen(Details(title='SSH status', loader=lambda: diagnostics.status('ssh')))
+        elif id == 'ssh-logs': self.app.push_screen(Details(title='SSH logs', loader=lambda: diagnostics.logs('ssh')))
         elif id == 'ssh-remove' and self.selected:
             selected = self.selected
             self.app.push_screen(Confirm('Stage removal of this authorization?\n' + self.records[selected]['fingerprint']),

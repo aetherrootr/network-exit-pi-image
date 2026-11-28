@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import components
 import service_manager
 import service_config
+import service_diagnostics
 import initialize
 import setup_state
 import singbox_setup
@@ -42,23 +43,21 @@ class InitializationTests(unittest.TestCase):
         with patch('accounts.check_account_policy'), patch('accounts.retain_admin_accounts'), \
                 patch.object(service_manager.registry,'hooks',return_value=[]), \
                 patch.object(service_manager,'ensure_management'), \
-                patch.object(components,'set_enabled',side_effect=subprocess.CalledProcessError(1,['systemctl'])):
-            with self.assertRaises(subprocess.CalledProcessError):service_manager.finish_setup()
+                patch.object(service_diagnostics,'health',side_effect=ValueError('service unhealthy')):
+            with self.assertRaisesRegex(ValueError,'service unhealthy'):service_manager.finish_setup()
         self.assertFalse((self.config/'initialized').exists())
         with patch.object(update,'STATE',self.root),patch.object(update,'LOCK',self.root/'ota.lock'), \
                 patch.object(update.os,'geteuid',return_value=0),patch.object(update,'platform',return_value=({},'A',{})):
             with self.assertRaisesRegex(ValueError,'`sudo enodectl config`'):update.install(None,{})
 
     def test_successful_setup_persists_mandatory_services_after_all_operations(self):
-        operations=[]
-        def enable(name,on):
+        def health():
             self.assertFalse((self.config/'initialized').exists())
-            operations.append((name,on))
         with patch('accounts.check_account_policy'),patch('accounts.retain_admin_accounts'), \
                 patch.object(service_manager.registry,'hooks',return_value=[]),patch.object(service_manager,'ensure_management'), \
-                patch.object(components,'set_enabled',side_effect=enable):service_manager.finish_setup()
+                patch.object(components,'set_enabled') as enable, patch.object(service_diagnostics,'health',side_effect=health):service_manager.finish_setup()
         self.assertTrue((self.config/'initialized').exists())
-        self.assertEqual([n for n,on in operations],list(components.UNITS))
+        enable.assert_not_called()
 
     def test_profile_publish_failure_restores_files_and_invalidates_completion(self):
         path=self.config/'cloudflare-token';path.write_text('old-token\n')
@@ -80,10 +79,10 @@ class InitializationTests(unittest.TestCase):
             self.assertEqual(calls,['accounts','required services'])
             self.assertFalse((self.config/'initialized').exists())
 
-    def test_service_command_rejects_unprivileged_or_unmounted_state(self):
+    def test_config_command_rejects_unprivileged_or_unmounted_state(self):
         for uid,mounted in ((1000,True),(0,False)):
-            with patch('os.geteuid',return_value=uid),patch('os.path.ismount',return_value=mounted):
-                with self.assertRaises(ValueError):service_manager.open_services()
+            with patch('os.geteuid',return_value=uid),patch('os.path.ismount',return_value=mounted),patch.object(initialize,'initialization_lock',nullcontext):
+                with self.assertRaises(ValueError):initialize.main()
 
     def test_private_proxy_has_unique_credentials(self):
         self.assertNotEqual(singbox_setup.private_proxy('127.0.0.1'),singbox_setup.private_proxy('127.0.0.1'))

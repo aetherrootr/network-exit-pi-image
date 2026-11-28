@@ -12,4 +12,6 @@ def save(values):
     if not token or any(not 33 <= ord(char) < 127 for char in token):
         raise ValueError('Supply a nonempty Tunnel token without whitespace or control characters')
     publish('cloudflared', {path: token + '\n'})
-    return 'Cloudflare Tunnel configuration saved. Existing enabled service was restarted.'
+    if components.choices().get('cloudflared'):
+        return 'Cloudflare Tunnel token saved; service restarted. Check status and View logs to verify registration.'
+    return 'Token saved, but the tunnel is disabled. Set Startup ON and apply to start it.'

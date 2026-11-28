@@ -22,8 +22,8 @@ limit_root_overlay() {
         }
         END {
             if (count != 1 || invalid || total <= 0) exit 1
-            kib=int(total / 8)
-            if (kib > 131072) kib=131072
+            kib=int(total / 3)
+            if (kib > 262144) kib=262144
             kib=int(kib / 4) * 4
             if (kib < 4096) exit 1
             printf "size=%dk,nr_inodes=%d", kib, kib / 4

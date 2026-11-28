@@ -15,6 +15,7 @@
     "units": [
       "network-exit-ddns.timer"
     ],
+    "diagnostic_units": ["network-exit-ddns.service"],
     "mandatory": false,
     "validate": "ddns_setup:validate",
     "after_disable": "ddns_setup:after_disable",
