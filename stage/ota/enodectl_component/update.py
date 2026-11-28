@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -19,6 +20,72 @@ SOURCE = Path('/usr/share/network-exit/update-source.json')
 RELEASE = Path('/usr/share/network-exit/release.json')
 STATE = Path('/var/lib/network-exit')
 TRUST = Path('/usr/share/network-exit/ota-ca.pem')
+PROGRESS_INTERVAL = 5
+
+
+def console_report(message):
+    print(message, flush=True)
+
+
+def safe_message(message):
+    # External tool output may contain terminal control sequences or bundle
+    # metadata. Keep progress/error text safe for both CLI and TUI rendering.
+    return ''.join(c if 32 <= ord(c) < 127 else '?' for c in str(message))
+
+
+class TransferProgress:
+    def __init__(self, label, total, report):
+        self.label, self.total, self.report = label, total, report
+        self.last_percent, self.last_time = -5, time.monotonic()
+        self.update(0)
+
+    def update(self, received):
+        percent = min(100, received * 100 // self.total)
+        now = time.monotonic()
+        if percent >= self.last_percent + 5 or now - self.last_time >= PROGRESS_INTERVAL or percent == 100:
+            self.report(f'{self.label}: {percent}% ({received / 1048576:.1f} / {self.total / 1048576:.1f} MiB)')
+            self.last_percent, self.last_time = percent, now
+
+
+def rauc_progress():
+    """Read the installer's real percentage; unavailable progress is nonfatal."""
+    try:
+        def property_value(name):
+            result = subprocess.run(['busctl', '--json=short', 'get-property', 'de.pengutronix.rauc', '/',
+                                     'de.pengutronix.rauc.Installer', name],
+                                    check=True, capture_output=True, text=True, timeout=3)
+            return json.loads(result.stdout)['data']
+        if property_value('Operation') != 'installing': return None
+        percent, message, _ = property_value('Progress')
+        if type(percent) is int and 0 <= percent <= 100 and isinstance(message, str):
+            return f'RAUC: {percent}% - {safe_message(message)}'
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def run_reported(command, phase, report, progress=None):
+    """Wait for a real subprocess while reporting its progress and failures.
+
+    communicate drains both output streams, including a verbose child. A
+    timeout leaves the subprocess running; it is only a progress poll.
+    """
+    report(phase + '...')
+    started = time.monotonic()
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace') as process:
+        while True:
+            try:
+                output, _ = process.communicate(timeout=PROGRESS_INTERVAL)
+                break
+            except subprocess.TimeoutExpired:
+                current = progress() if progress else None
+                elapsed = int(time.monotonic() - started)
+                report(current or f'{phase}: still running ({elapsed}s elapsed).')
+        if process.returncode:
+            # Include the actual diagnostic rather than only the exit status.
+            lines = [safe_message(line.strip()) for line in (output or '').splitlines() if line.strip()]
+            detail = '\n'.join(lines[-8:])
+            raise ValueError(f'{phase} failed (exit {process.returncode}).' + ('\n' + detail if detail else ''))
 
 
 def latest(source):
@@ -45,10 +112,11 @@ def latest(source):
     return {'version': version, 'name': name, 'url': url, 'size': int(asset['size'])}
 
 
-def download(asset, destination):
+def download(asset, destination, report=console_report):
     if asset['size'] <= 0 or asset['size'] + 64 * 1024 * 1024 > shutil.disk_usage(destination.parent).free:
         raise ValueError('Insufficient STATE space for this OTA bundle')
     received = 0
+    progress = TransferProgress('Downloading OTA', asset['size'], report)
     request = Request(asset['url'], headers={'User-Agent': 'enodectl'})
     with urlopen(request, timeout=60) as response, destination.open('xb') as stream:
         while chunk := response.read(4 * 1024 * 1024):
@@ -56,14 +124,17 @@ def download(asset, destination):
             if received > asset['size']:
                 raise ValueError('OTA download exceeds the announced size')
             stream.write(chunk)
+            progress.update(received)
+        report('Synchronizing downloaded bundle to STATE...')
         stream.flush()
         os.fsync(stream.fileno())
     if received != asset['size']:
         raise ValueError('Incomplete OTA download')
     destination.chmod(0o400)
+    report('OTA download complete.')
 
 
-def install(bundle, source, reboot=False, retry_failed=False, skip_signature_verification=False, confirmation='', report=print):
+def install(bundle, source, reboot=False, retry_failed=False, skip_signature_verification=False, confirmation='', report=console_report):
     if os.geteuid() != 0:
         raise ValueError('Run `sudo enodectl update install`')
     if skip_signature_verification:
@@ -88,10 +159,11 @@ def install(bundle, source, reboot=False, retry_failed=False, skip_signature_ver
             local = Path(tmp) / 'update.raucb'
             if bundle:
                 origin = Path(bundle).resolve(strict=True)
-                if not origin.is_file() or origin.stat().st_size + 64 * 1024 * 1024 > shutil.disk_usage(cache).free:
+                expected_size = origin.stat().st_size
+                if not origin.is_file() or expected_size <= 0 or expected_size + 64 * 1024 * 1024 > shutil.disk_usage(cache).free:
                     raise ValueError('Local bundle must be a regular file that fits in STATE')
                 # Always verify/install our private copy, not an externally mutable path.
-                expected_size = origin.stat().st_size
+                progress = TransferProgress('Staging local OTA', expected_size, report)
                 with origin.open('rb') as src, local.open('xb') as dst:
                     remaining = expected_size
                     while remaining:
@@ -100,21 +172,31 @@ def install(bundle, source, reboot=False, retry_failed=False, skip_signature_ver
                             raise ValueError('Local bundle changed while staging')
                         dst.write(chunk)
                         remaining -= len(chunk)
+                        progress.update(expected_size - remaining)
                     if src.read(1):
                         raise ValueError('Local bundle changed while staging')
+                    report('Synchronizing staged bundle to STATE...')
                     dst.flush()
                     os.fsync(dst.fileno())
                 local.chmod(0o400)
+                report('Local OTA staging complete.')
             else:
-                download(latest(source), local)
+                report('Checking latest published release...')
+                asset = latest(source)
+                report('Selected OTA version: ' + asset['version'])
+                download(asset, local, report)
             # RAUC authenticates the bundle and enforces the compatible board and
             # inactive-slot selection. A checksum alone never authorizes installation.
             if skip_signature_verification:
                 from ota_recovery import install as recovery_install
+                report('Preparing local recovery; signature verification explicitly skipped.')
                 recovery_install(local, info, active, state, STATE)
             else:
-                subprocess.run(['rauc', 'info', f'--keyring={TRUST}', str(local)], check=True, capture_output=True)
-                subprocess.run(['rauc', 'install', str(local)], check=True, capture_output=True)
+                run_reported(['rauc', 'info', f'--keyring={TRUST}', str(local)], 'Verifying OTA signature and metadata', report)
+                report('OTA signature verification passed.')
+                expected = 'B' if active == 'A' else 'A'
+                run_reported(['rauc', 'install', str(local)], f'Installing OTA to inactive slot {expected}', report, rauc_progress)
+                report('RAUC installation complete. Checking bootchain activation...')
             _, running, after = platform()
             expected = 'B' if active == 'A' else 'A'
             if running != active or after['ne_pending'] != expected or after['ne_left'] != '3':

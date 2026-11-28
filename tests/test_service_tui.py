@@ -569,6 +569,30 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(form.query_one('#field-skip_signature_verification',Select).value)
                 self.assertEqual(form.query_one('#field-confirmation',Input).value,'')
 
+    async def test_ota_reports_progress_while_install_worker_is_running(self):
+        app=ServiceApp(model=service_manager.ServiceModel())
+        gate=threading.Event(); started=threading.Event(); self.addCleanup(gate.set)
+        def save(values,report):
+            report('RAUC: 61% - Copying image to rootfs.1')
+            started.set(); gate.wait(5)
+            return 'OTA installed.'
+        with patch('ota_update_config.save',side_effect=save):
+            async with app.run_test(size=(120,42)) as pilot:
+                await self.settle(app,pilot);await self.select(app,pilot,'ota')
+                await pilot.click('#configure');await self.settle(app,pilot)
+                form=app.screen
+                await pilot.click('#form-save');await pilot.pause()
+                await pilot.click('#confirm-apply')
+                for _ in range(30):
+                    await pilot.pause(.05)
+                    if started.is_set(): break
+                self.assertTrue(started.is_set())
+                self.assertTrue(form.busy)
+                self.assertIn('RAUC: 61%',str(form.query_one('#form-result',Static).content))
+                gate.set();await self.settle(app,pilot)
+                self.assertFalse(form.busy)
+                self.assertIn('OTA installed.',str(form.query_one('#form-result',Static).content))
+
     async def test_form_quit_cancel_retains_unsaved_changes(self):
         app=ServiceApp(model=service_manager.ServiceModel())
         async with app.run_test(size=(110,36)) as pilot:
