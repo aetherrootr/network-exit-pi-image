@@ -28,14 +28,18 @@ class TerminalInput:
         self.parser = XTermParser(debug)
         self.paste_started = None
         self.paste_last = None
+        self.last_input = None
         self.marker_tail = ''
 
     def expire_paste(self, now):
-        if self.paste_started is None: return
-        if now - self.paste_last < self.PASTE_IDLE_SECONDS and now - self.paste_started < self.PASTE_MAX_SECONDS: return
+        idle = self.last_input is not None and now - self.last_input >= self.PASTE_IDLE_SECONDS
+        expired = (self.paste_started is not None and
+                   (now - self.paste_last >= self.PASTE_IDLE_SECONDS or now - self.paste_started >= self.PASTE_MAX_SECONDS))
+        if not (idle or expired): return
         # Textual waits indefinitely for a missing bracketed-paste terminator,
-        # swallowing later keyboard/mouse input. Discard the incomplete paste
-        # without emitting its contents and continue parsing fresh input.
+        # swallowing later keyboard/mouse input. A partial terminator can also
+        # time out inside Textual while the raw marker detector thinks it
+        # completed. Reset on idle even when our paste tracker is clear.
         previous = self.parser
         self.close()
         self.parser = XTermParser(self.debug)
@@ -43,6 +47,7 @@ class TerminalInput:
             if hasattr(previous, attribute): setattr(self.parser, attribute, getattr(previous, attribute))
         self.decoder.reset()
         self.paste_started = self.paste_last = None
+        self.last_input = None
         self.marker_tail = ''
 
     def observe_paste(self, text, now):
@@ -68,6 +73,7 @@ class TerminalInput:
     def feed(self, data):
         now = monotonic()
         self.expire_paste(now)
+        if data: self.last_input = now
         text = self.decoder.decode(data)
         # Empty text can be an incomplete valid UTF-8 character, not EOF.
         if text:
@@ -76,7 +82,14 @@ class TerminalInput:
 
     def tick(self):
         self.expire_paste(monotonic())
-        yield from self.filtered(self.parser.tick())
+        messages = list(self.parser.tick())
+        if messages and self.paste_started is not None:
+            # A partial escape timing out during a paste produces artificial
+            # key events. Do not forward those or join a late suffix to the
+            # already-timed-out marker; retain the idle/max recovery deadline.
+            self.marker_tail = ''
+            messages = [message for message in messages if not isinstance(message, events.Key)]
+        yield from self.filtered(messages)
 
     def close(self):
         try:

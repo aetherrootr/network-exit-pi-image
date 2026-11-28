@@ -44,6 +44,27 @@ class TerminalInputTests(unittest.TestCase):
         self.assertEqual([m.text for m in messages if isinstance(m,events.Paste)],['hello world'])
         self.assertEqual([m.key for m in messages if isinstance(m,events.Key)],['ctrl+q'])
 
+    def test_late_split_paste_end_does_not_leave_parser_swallowing_keys(self):
+        reader=TerminalInput(); clock=[0.0]
+        with patch('enodectl_core.terminal.monotonic',side_effect=lambda:clock[0]), \
+                patch('textual._parser.get_time',side_effect=lambda:clock[0]):
+            self.assertEqual(list(reader.feed(b'\x1b[200~fixture-text')),[])
+            clock[0]=0.1; self.assertEqual(list(reader.feed(b'\x1b[20')),[])
+            # Textual's escape sequence deadline expires before the paste end
+            # arrives, but the enclosing paste idle deadline has not expired.
+            clock[0]=1.0; self.assertEqual(list(reader.tick()),[])
+            clock[0]=1.1; self.assertEqual(list(reader.feed(b'1~')),[])
+            clock[0]=3.2; self.assertEqual(list(reader.tick()),[])
+            self.assertEqual([m.key for m in reader.feed(b'\x1b[A\x11')],['up','ctrl+q'])
+
+    def test_idle_recovery_resets_parser_even_if_paste_tracker_is_out_of_sync(self):
+        reader=TerminalInput(); clock=[0.0]
+        with patch('enodectl_core.terminal.monotonic',side_effect=lambda:clock[0]):
+            self.assertEqual(list(reader.feed(b'\x1b[200~fixture')),[])
+            reader.paste_started=reader.paste_last=None
+            clock[0]=2.1; self.assertEqual(list(reader.tick()),[])
+            self.assertEqual([m.key for m in reader.feed(b'\x11\x1b[B')],['ctrl+q','down'])
+
     def test_driver_uses_sgr_mouse_without_hover_flooding(self):
         driver = object.__new__(TerminalDriver)
         driver.write, driver.flush = Mock(), Mock()

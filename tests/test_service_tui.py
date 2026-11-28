@@ -280,6 +280,41 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsInstance(app.screen,Confirm)
                 await self.confirm(app,pilot,False)
 
+    async def test_headscale_address_only_visible_for_headscale_and_skipped_by_navigation(self):
+        import tailscale_config as backend
+        from tailscale_view import screen
+        target='https://headscale.example.test'
+        for initial in ('official','headscale'):
+            with self.subTest(initial=initial), patch.object(backend,'load',return_value={
+                    'provider':initial,'headscale_url':target if initial=='headscale' else '', 'advertise_exit':False}):
+                app=ServiceApp(model=service_manager.ServiceModel())
+                async with app.run_test(size=(110,36)) as pilot:
+                    await self.settle(app,pilot);app.push_screen(screen());await self.settle(app,pilot)
+                    form=app.screen
+                    provider=form.query_one('#field-provider',Select)
+                    address=form.query_one('#field-headscale_url',Input)
+                    label=form.query_one('#label-headscale_url',Label)
+                    advertise=form.query_one('#field-advertise_exit',Select)
+                    self.assertEqual(address.display,initial=='headscale')
+                    self.assertEqual(label.display,initial=='headscale')
+                    self.assertEqual(address.value,target if initial=='headscale' else '')
+                    provider.value='official';await pilot.pause()
+                    self.assertFalse(address.display);self.assertFalse(label.display)
+                    self.assertNotIn(address,form.focus_chain)
+                    form.set_focus(provider);await pilot.press('down');await pilot.pause()
+                    self.assertIs(form.focused,advertise)
+                    form.set_focus(provider);await pilot.press('right');await pilot.pause()
+                    self.assertEqual(provider.value,'headscale')
+                    self.assertTrue(address.display);self.assertTrue(label.display)
+                    await pilot.press('down');await pilot.pause()
+                    self.assertIs(form.focused,address)
+                    address.value=target
+                    provider.value='official';await pilot.pause()
+                    self.assertIsNot(form.focused,address)
+                    self.assertEqual(form.values()['headscale_url'],'')
+                    provider.value='headscale';await pilot.pause()
+                    self.assertEqual(address.value,target)
+
     async def test_tailscale_reauthentication_confirmation_is_conditional(self):
         import tailscale_config as backend
         from tailscale_view import screen

@@ -281,7 +281,7 @@ class FormScreen(Screen):
                                  allow_blank=False, id='form-startup', disabled=True)
             for field in self.fields:
                 yield from self.before_field(field)
-                yield Label(Text(field.label))
+                yield Label(Text(field.label), id='label-' + field.name)
                 if field.kind == 'multiline':
                     yield Label('Enter: edit text | Esc: finish editing')
                     yield EditTextArea('', id='field-' + field.name, read_only=True, tab_behavior='focus')
