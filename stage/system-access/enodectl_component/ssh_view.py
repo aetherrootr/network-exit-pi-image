@@ -4,7 +4,7 @@ from textual import work
 from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Static
-from enodectl_core.textual_ui import Confirm, Details, Field, FormScreen, display, error_message
+from enodectl_core.textual_ui import Confirm, Details, Field, FormScreen, confirm_discard, display, error_message
 from ssh_editor import SSHEditor
 import service_diagnostics as diagnostics
 
@@ -135,7 +135,7 @@ class SSHScreen(Screen):
     def action_back(self):
         if self.busy: return
         if self.model and self.model.changed():
-            self.app.push_screen(Confirm('Discard unsaved SSH authorizations?'), lambda yes: self.app.pop_screen() if yes else None)
+            confirm_discard(self, 'Discard unsaved SSH authorizations?')
         else: self.app.pop_screen()
 
     def has_unsaved(self): return bool(self.model and self.model.changed())

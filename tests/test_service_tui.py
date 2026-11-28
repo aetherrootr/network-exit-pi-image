@@ -558,11 +558,19 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
             form.set_focus(form.query_one('#form-back',Button));await pilot.pause()
             await paste('ignored',b'\x1b[D')
             self.assertNotEqual(form.focused.id,'form-back')
-            await pilot.press('escape');await pilot.pause()
+            # Back's Button.Pressed handler runs on the form's own message
+            # pump, unlike an Escape binding. Confirming discard must not
+            # await this form's removal from inside that callback.
+            form.set_focus(form.query_one('#form-back',Button));await pilot.pause()
+            await pilot.press('enter');await pilot.pause()
             self.assertIsInstance(app.screen,Confirm)
             await paste('ignored',b'\x1b[C')
             self.assertEqual(app.focused.id,'confirm-apply')
             await pilot.press('enter');await self.settle(app,pilot)
+            parent=app.screen
+            previous=parent.focused
+            await pilot.press('right');await pilot.pause()
+            self.assertIsNot(parent.focused,previous,'input stalled after discard confirmation')
 
         with ExitStack() as stack:
             stack.enter_context(patch('tailscale_config.load',return_value={'provider':'headscale','headscale_url':'','advertise_exit':False}))
@@ -623,7 +631,19 @@ class TextualInteractionTests(unittest.IsolatedAsyncioTestCase):
                                 self.assertIsInstance(app.screen,FormScreen)
                                 await edit_form(app.screen)
                                 self.assertIs(app.screen,form)
-                            await pilot.press('escape');await self.settle(app,pilot)
+                            model.changed.return_value=True
+                            form.set_focus(form.query_one('#ssh-back',Button));await pilot.pause()
+                            await pilot.press('enter');await pilot.pause()
+                            self.assertIsInstance(app.screen,Confirm)
+                            await pilot.press('enter');await pilot.pause()  # Cancel preserves staged edits.
+                            self.assertIs(app.screen,form)
+                            form.set_focus(form.query_one('#ssh-back',Button));await pilot.pause()
+                            await pilot.press('enter','right','enter');await self.settle(app,pilot)
+                            self.assertEqual(len(app.screen_stack),1)
+                            previous=app.focused
+                            await pilot.press('right');await pilot.pause()
+                            self.assertIsNot(app.focused,previous,'input stalled after SSH discard')
+                            model.changed.return_value=False
                         else:
                             self.assertIsInstance(form,ReadOnlyScreen)
                             await paste('ignored',b'\x1b[D')

@@ -163,6 +163,17 @@ class Confirm(ModalScreen):
     def action_cancel(self): self.dismiss(False)
 
 
+def confirm_discard(screen, message):
+    def confirmed(yes):
+        if yes and screen.app.screen is screen:
+            # Textual awaits callback return values. Returning pop_screen()'s
+            # AwaitComplete from this screen's result callback would wait for
+            # the screen to remove itself while its own message pump is busy.
+            # Schedule the pop, then let the callback finish synchronously.
+            screen.app.pop_screen()
+    screen.app.push_screen(Confirm(message), confirmed)
+
+
 class Details(ModalScreen):
     DEFAULT_CSS = '''
     Details { align: center middle; }
@@ -428,7 +439,7 @@ class FormScreen(Screen):
     def action_back(self):
         if self.busy: return
         if self.has_unsaved():
-            self.app.push_screen(Confirm('Discard unsaved form changes?'), lambda yes: self.app.pop_screen() if yes else None)
+            confirm_discard(self, 'Discard unsaved form changes?')
         else: self.app.pop_screen()
 
 

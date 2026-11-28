@@ -1,5 +1,6 @@
 """Exercise raw terminal bytes rather than only Textual's headless key events."""
 from _stage_support import ROOT
+from contextlib import contextmanager
 import os
 import fcntl
 import json
@@ -154,6 +155,84 @@ class FixtureApp(App):
 result = FixtureApp().run()
 Path(sys.argv[1], 'result.json').write_text(json.dumps(result))
 """
+        with self.pty_app(child) as (directory, process, send, drain_until):
+            def fragmented_paste(text, followup):
+                send(b'\x1b[200~' + text.encode() + b'\x1b[20')
+                drain_until(lambda: False, 0.4)
+                send(b'1~' + followup)
+
+            fragmented_paste('fixture-家\nignored', b'\x1b[B')
+            self.assertTrue(drain_until(lambda: (directory / 'focused').exists(), 10), 'Down did not reach app')
+            multiline = ('  {"value": "fixture-家"},\n' * 250).rstrip('\n')
+            fragmented_paste(multiline, b'')
+            drain_until(lambda: False, 0.5)
+            send(b'\x11')
+            self.assertTrue(drain_until(lambda: process.poll() is not None, 10), 'Ctrl+Q did not exit')
+            self.assertEqual(process.returncode, 0)
+            self.assertEqual(json.loads((directory / 'result.json').read_text()), ['fixture-家', multiline])
+
+    def test_real_pty_discard_from_back_button_keeps_dashboard_responsive(self):
+        # Reproduce the actual interaction: paste, go to Back through the
+        # form's button handler, accept discard, then navigate the dashboard.
+        child = r"""
+import sys
+from pathlib import Path
+from textual.app import App
+from textual.binding import Binding
+from textual.widgets import Button
+from enodectl_core.terminal import TerminalDriver
+from enodectl_core.textual_ui import Confirm, Field, FormScreen, NAVIGATION_BINDINGS, navigation_enabled, navigate
+folder = Path(sys.argv[1])
+class FixtureForm(FormScreen):
+    def fill(self, values):
+        super().fill(values)
+        self.call_after_refresh(lambda: (folder / 'form-ready').touch())
+class FixtureApp(App):
+    BINDINGS = [Binding('ctrl+q', 'quit', priority=True), *NAVIGATION_BINDINGS]
+    def __init__(self): super().__init__(driver_class=TerminalDriver)
+    def check_action(self, action, parameters):
+        if action == 'navigate': return navigation_enabled(self.screen, parameters[0])
+        return super().check_action(action, parameters)
+    def compose(self):
+        yield Button('Open fixture', id='open')
+        yield Button('Other action', id='other')
+    def on_mount(self):
+        self.screen.set_focus(self.query_one('#open', Button))
+        (folder / 'ready').touch()
+    def on_button_pressed(self, event):
+        if event.button.id == 'open':
+            self.push_screen(FixtureForm('WireGuard fixture', [Field('peer_key', 'Public key')],
+                                         lambda: {'peer_key': ''}, lambda values: None))
+    def push_screen(self, screen, *args, **kwargs):
+        result = super().push_screen(screen, *args, **kwargs)
+        if isinstance(screen, Confirm):
+            screen.call_after_refresh(lambda: (folder / 'confirm-ready').touch())
+        return result
+    def action_navigate(self, key):
+        navigate(self.screen, key)
+        if self.focused is not None and self.focused.id == 'other':
+            (folder / 'dashboard-navigated').touch()
+    def action_quit(self): self.exit(self.focused is not None and self.focused.id == 'other')
+assert FixtureApp().run() is True
+"""
+        with self.pty_app(child) as (directory, process, send, drain_until):
+            send(b'\r')
+            self.assertTrue(drain_until(lambda: (directory / 'form-ready').exists(), 10))
+            send(b'\x1b[200~AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\x1b[201~')
+            # Enter moves from the field to Apply; Right selects Back.
+            send(b'\r\x1b[C\r')
+            self.assertTrue(drain_until(lambda: (directory / 'confirm-ready').exists(), 10), 'discard dialog did not open')
+            send(b'\x1b[C\r')
+            drain_until(lambda: False, 0.5)
+            send(b'\x1b[C')
+            self.assertTrue(drain_until(lambda: (directory / 'dashboard-navigated').exists(), 10),
+                            'application stopped dispatching keys after discard')
+            send(b'\x11')
+            self.assertTrue(drain_until(lambda: process.poll() is not None, 10), 'Ctrl+Q did not exit')
+            self.assertEqual(process.returncode, 0)
+
+    @contextmanager
+    def pty_app(self, child):
         with tempfile.TemporaryDirectory() as directory:
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
@@ -180,29 +259,17 @@ Path(sys.argv[1], 'result.json').write_text(json.dumps(result))
                     if writable: data = data[os.write(master, data[:1024]):]
                 self.assertFalse(data, 'PTY stopped accepting input')
 
-            def fragmented_paste(text, followup):
-                send(b'\x1b[200~' + text.encode() + b'\x1b[20')
-                drain_until(lambda: False, 0.4)
-                send(b'1~' + followup)
-
             try:
                 self.assertTrue(drain_until(lambda: b'\x1b[?2004h' in output and Path(directory, 'ready').exists(), 10),
                                 'PTY app did not start')
-                fragmented_paste('fixture-家\nignored', b'\x1b[B')
-                self.assertTrue(drain_until(lambda: Path(directory, 'focused').exists(), 10), 'Down did not reach app')
-                multiline = ('  {"value": "fixture-家"},\n' * 250).rstrip('\n')
-                fragmented_paste(multiline, b'')
-                drain_until(lambda: False, 0.5)
-                send(b'\x11')
-                self.assertTrue(drain_until(lambda: process.poll() is not None, 10), 'Ctrl+Q did not exit')
-                self.assertEqual(process.returncode, 0)
-                self.assertEqual(json.loads(Path(directory,'result.json').read_text()), ['fixture-家', multiline])
+                yield Path(directory), process, send, drain_until
             finally:
                 if process.poll() is None:
                     process.terminate()
                     try: process.wait(timeout=5)
                     except subprocess.TimeoutExpired: process.kill(); process.wait()
                 os.close(master)
+
 
     def test_actual_reader_thread_survives_invalid_bytes(self):
         read_fd, write_fd = os.pipe()
