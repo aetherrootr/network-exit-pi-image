@@ -7,11 +7,11 @@ def load():
     return {'bundle': '', 'skip_signature_verification': False, 'confirmation': '', 'retry_failed': False}
 
 
-def save(values):
+def save(values, report=lambda message: None):
     import json
     source = json.loads(update.SOURCE.read_text())
     update.install(values['bundle'].strip() or None, source,
                    retry_failed=bool(values['retry_failed']),
                    skip_signature_verification=bool(values['skip_signature_verification']),
-                   confirmation=values['confirmation'], report=lambda message: None)
+                   confirmation=values['confirmation'], report=report)
     return 'OTA installed to the inactive slot. Inspect bootchain status, then use `sudo enodectl reboot`. Three trial boots are available.'

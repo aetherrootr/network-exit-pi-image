@@ -1,5 +1,5 @@
 """Textual OTA actions; all installation and recovery logic lives in backends."""
-from enodectl_core.textual_ui import Field, FormScreen
+from enodectl_core.textual_ui import Field, FormScreen, display
 from textual.widgets import Button, Input, Select, Static
 import ota_status
 import ota_update_config as backend
@@ -7,6 +7,17 @@ import service_diagnostics as diagnostics
 
 
 class OTAInstallScreen(FormScreen):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        saver = self.saver
+        self.saver = lambda values: saver(values, report=self.report_progress)
+
+    def report_progress(self, message):
+        self.app.call_from_thread(self.show_progress, message)
+
+    def show_progress(self, message):
+        self.query_one('#form-result', Static).update(display(message))
+
     def set_busy(self, value):
         super().set_busy(value)
         for widget in self.query('Input, Select'): widget.disabled = value
