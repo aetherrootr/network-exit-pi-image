@@ -99,19 +99,21 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual((state['ne_confirmed'],state['ne_pending'],state['ne_B']),('A','none','0'))
 
     def test_unsigned_flag_requires_local_path_and_exact_confirmation_before_commands(self):
-        with patch.object(update.os,'geteuid',return_value=0),patch.object(update.subprocess,'run') as run:
+        with patch.object(update.os,'geteuid',return_value=0),patch.object(update.subprocess,'run') as run, \
+                patch.object(update.subprocess,'Popen') as spawn:
             for bundle,phrase in ((None,recovery.CONFIRMATION),(self.bundle,''),(self.bundle,'yes'),
                                   (self.bundle,f'`{recovery.CONFIRMATION}`')):
                 with self.subTest(bundle=bundle,phrase=phrase),self.assertRaises(ValueError):
                     update.install(bundle,{},skip_signature_verification=True,confirmation=phrase)
             run.assert_not_called()
+            spawn.assert_not_called()
 
     def test_authorized_recovery_never_calls_normal_rauc_install(self):
         (self.root/'config').mkdir();(self.root/'config/initialized').write_text('ready')
         with patch.object(update,'STATE',self.root),patch.object(update,'LOCK',self.root/'op.lock'), \
              patch.object(update.os,'geteuid',return_value=0), \
              patch.object(update,'platform',side_effect=[(self.info,'A',self.before),(self.info,'A',{**self.before,'ne_pending':'B','ne_left':'3'})]), \
-             patch.object(recovery,'install') as rescue,patch.object(update.subprocess,'run') as normal,patch.object(update,'reboot_system') as reboot:
+             patch.object(recovery,'install') as rescue,patch.object(update,'run_reported') as normal,patch.object(update,'reboot_system') as reboot:
             update.install(self.bundle,{},skip_signature_verification=True,confirmation=recovery.CONFIRMATION,report=lambda text:None)
             rescue.assert_called_once();normal.assert_not_called();reboot.assert_not_called()
             staged=rescue.call_args.args[0];self.assertNotEqual(staged,self.bundle)

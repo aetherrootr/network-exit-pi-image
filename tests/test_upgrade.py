@@ -26,9 +26,11 @@ class OperatorUpdateTests(unittest.TestCase):
             (root/'release').write_text(json.dumps({'version':'v1'}))
             with patch.object(upgrade,'SOURCE',root/'source'), patch.object(upgrade,'RELEASE',root/'release'), \
                     patch.object(sys,'argv',['enodectl update']), patch.object(upgrade,'latest',return_value={'version':'v2'}), \
-                    patch.object(upgrade.subprocess,'run') as command, patch('sys.stdout',new=io.StringIO()) as output:
+                    patch.object(upgrade.subprocess,'run') as command, patch.object(upgrade.subprocess,'Popen') as spawn, \
+                    patch('sys.stdout',new=io.StringIO()) as output:
                 upgrade.main()
                 command.assert_not_called()
+                spawn.assert_not_called()
                 self.assertIn('Update available',output.getvalue())
 
     def test_latest_rejects_factory_assets_and_external_downloads(self):
@@ -50,18 +52,20 @@ class OperatorUpdateTests(unittest.TestCase):
             root=Path(tmp);(root/'config').mkdir();(root/'config/initialized').write_text('1')
             (root/'bundle').write_bytes(b'unsigned fixture');(root/'cert').write_text('fixture')
             state={'ne_pending':'none','ne_left':'0'}
-            commands=[]
-            def reject(command,**kwargs):
-                commands.append(command)
-                raise subprocess.CalledProcessError(1,command)
             with patch.object(upgrade,'STATE',root),patch.object(upgrade,'TRUST',root/'cert'), \
                     patch.object(upgrade,'platform',return_value=({},'A',state)), \
                     patch.object(upgrade.os,'geteuid',return_value=0), \
-                    patch.object(upgrade.subprocess,'run',side_effect=reject), \
+                    patch.object(upgrade.subprocess,'Popen') as spawn, patch.object(upgrade,'reboot_system') as reboot, \
                     patch.object(upgrade.fcntl,'flock'), patch.object(upgrade,'LOCK',root/'lock',create=True):
-                with self.assertRaises(subprocess.CalledProcessError): upgrade.install(root/'bundle',SOURCE,reboot=True)
-            self.assertEqual(len(commands),1)
-            self.assertEqual(commands[0][:2],['rauc','info'])
+                process=spawn.return_value.__enter__.return_value
+                process.communicate.return_value=('Invalid bundle signature',None)
+                process.returncode=1
+                with self.assertRaisesRegex(ValueError,'Invalid bundle signature'):
+                    upgrade.install(root/'bundle',SOURCE,reboot=True,report=lambda message:None)
+                spawn.assert_called_once()
+                self.assertEqual(spawn.call_args.args[0][:2],['rauc','info'])
+                reboot.assert_not_called()
+                self.assertFalse(list((root/'update-cache').iterdir()))
 
     def test_last_trial_cannot_overwrite_the_confirmed_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,10 +73,11 @@ class OperatorUpdateTests(unittest.TestCase):
             with patch.object(upgrade,'STATE',root), patch.object(upgrade,'LOCK',root/'lock'), \
                     patch.object(upgrade.os,'geteuid',return_value=0), \
                     patch.object(upgrade,'platform',return_value=({},'B',{'ne_pending':'B','ne_left':'0'})), \
-                    patch.object(upgrade.subprocess,'run') as command:
+                    patch.object(upgrade.subprocess,'run') as command, patch.object(upgrade.subprocess,'Popen') as spawn:
                 with self.assertRaisesRegex(ValueError,'already pending'):
                     upgrade.install(None,SOURCE,retry_failed=True)
                 command.assert_not_called()
+                spawn.assert_not_called()
 
     def test_no_update_timer_or_service_is_shipped(self):
         for path in (ROOT/'stage').glob('*/rootfs_layer/etc/systemd/**/*'):
