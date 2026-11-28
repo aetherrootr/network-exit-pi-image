@@ -1,7 +1,19 @@
 """Exercise raw terminal bytes rather than only Textual's headless key events."""
 from _stage_support import ROOT
+from contextlib import contextmanager
 import os
+import fcntl
+import json
+import pty
+import select
+import struct
+import subprocess
+import sys
+import tempfile
+import termios
 import threading
+import time
+from pathlib import Path
 import unittest
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -44,26 +56,64 @@ class TerminalInputTests(unittest.TestCase):
         self.assertEqual([m.text for m in messages if isinstance(m,events.Paste)],['hello world'])
         self.assertEqual([m.key for m in messages if isinstance(m,events.Key)],['ctrl+q'])
 
-    def test_late_split_paste_end_does_not_leave_parser_swallowing_keys(self):
+    def test_late_split_paste_end_delivers_text_and_immediate_keys(self):
         reader=TerminalInput(); clock=[0.0]
         with patch('enodectl_core.terminal.monotonic',side_effect=lambda:clock[0]), \
                 patch('textual._parser.get_time',side_effect=lambda:clock[0]):
             self.assertEqual(list(reader.feed(b'\x1b[200~fixture-text')),[])
             clock[0]=0.1; self.assertEqual(list(reader.feed(b'\x1b[20')),[])
-            # Textual's escape sequence deadline expires before the paste end
-            # arrives, but the enclosing paste idle deadline has not expired.
+            # The terminator arrives after Textual's escape timeout, but
+            # before our enclosing paste idle deadline.
             clock[0]=1.0; self.assertEqual(list(reader.tick()),[])
-            clock[0]=1.1; self.assertEqual(list(reader.feed(b'1~')),[])
-            clock[0]=3.2; self.assertEqual(list(reader.tick()),[])
-            self.assertEqual([m.key for m in reader.feed(b'\x1b[A\x11')],['up','ctrl+q'])
+            clock[0]=1.1; messages=list(reader.feed(b'1~\x1b[A\x11'))
+            self.assertEqual([m.text for m in messages if isinstance(m,events.Paste)],['fixture-text'])
+            self.assertEqual([m.key for m in messages if isinstance(m,events.Key)],['up','ctrl+q'])
 
-    def test_idle_recovery_resets_parser_even_if_paste_tracker_is_out_of_sync(self):
+    def test_every_byte_boundary_and_multiple_pastes_preserve_event_order(self):
+        text='line one\nUnicode: 家\tline two'
+        data=b'\x1b[200~'+text.encode()+b'\x1b[201~\x1b[B\x1b[200~next\x1b[201~\r'
+        for split in range(1,len(data)):
+            with self.subTest(split=split):
+                reader=TerminalInput()
+                messages=list(reader.feed(data[:split]))+list(reader.feed(data[split:]))
+                self.assertEqual([(type(m),m.text if isinstance(m,events.Paste) else m.key) for m in messages],
+                                 [(events.Paste,text),(events.Key,'down'),(events.Paste,'next'),(events.Key,'enter')])
+
+    def test_escape_like_payload_is_not_interpreted_as_navigation(self):
+        reader=TerminalInput()
+        payload=b'a\x1b[A\x11\x1b[200~\x00b'
+        messages=list(reader.feed(b'\x1b[200~'+payload+b'\x1b[201~\x1b[B'))
+        self.assertEqual([m.text for m in messages if isinstance(m,events.Paste)],['a\x1b[A\x11\x1b[200~b'])
+        self.assertEqual([m.key for m in messages if isinstance(m,events.Key)],['down'])
+
+    def test_paste_maximum_duration_discards_buffer_even_with_continuous_input(self):
         reader=TerminalInput(); clock=[0.0]
         with patch('enodectl_core.terminal.monotonic',side_effect=lambda:clock[0]):
             self.assertEqual(list(reader.feed(b'\x1b[200~fixture')),[])
-            reader.paste_started=reader.paste_last=None
-            clock[0]=2.1; self.assertEqual(list(reader.tick()),[])
+            for second in range(1,30):
+                clock[0]=second; self.assertEqual(list(reader.feed(b'x')),[])
+            clock[0]=30; self.assertEqual(list(reader.tick()),[])
             self.assertEqual([m.key for m in reader.feed(b'\x11\x1b[B')],['ctrl+q','down'])
+
+    def test_standalone_escape_and_fragmented_arrow_still_work(self):
+        reader=TerminalInput(); clock=[0.0]
+        with patch('enodectl_core.terminal.monotonic',side_effect=lambda:clock[0]), \
+                patch('textual._parser.get_time',side_effect=lambda:clock[0]):
+            self.assertEqual(list(reader.feed(b'\x1b')),[])
+            clock[0]=0.11; self.assertEqual([m.key for m in reader.tick()],['escape'])
+            self.assertEqual(list(reader.feed(b'\x1b[')),[])
+            self.assertEqual([m.key for m in reader.feed(b'A')],['up'])
+
+    def test_late_start_suffix_cannot_enter_textuals_paste_mode(self):
+        reader=TerminalInput(); clock=[0.0]
+        with patch('enodectl_core.terminal.monotonic',side_effect=lambda:clock[0]), \
+                patch('textual._parser.get_time',side_effect=lambda:clock[0]):
+            self.assertEqual(list(reader.feed(b'\x1b')),[])
+            clock[0]=0.11; self.assertEqual([m.key for m in reader.tick()],['escape'])
+            clock[0]=0.12
+            messages=list(reader.feed(b'[200~late\x1b[201~\x1b[A\x11'))
+            self.assertEqual([m.key for m in messages if isinstance(m,events.Key)][-2:],['up','ctrl+q'])
+            self.assertEqual([m for m in messages if isinstance(m,events.Paste)],[])
 
     def test_driver_uses_sgr_mouse_without_hover_flooding(self):
         driver = object.__new__(TerminalDriver)
@@ -78,6 +128,148 @@ class TerminalInputTests(unittest.TestCase):
         driver.flush.assert_called_once()
         messages = list(TerminalInput().feed(b'\x1b[<0;4;5M\x1b[<0;4;5m'))
         self.assertEqual([type(message) for message in messages], [events.MouseDown, events.MouseUp])
+
+    def test_real_pty_delivers_single_line_and_large_multiline_pastes(self):
+        # Both focused widget types must receive exactly one paste event from
+        # the actual driver thread, and navigation must work immediately after.
+        child = r"""
+import json, sys
+from pathlib import Path
+from textual.app import App
+from textual.binding import Binding
+from textual.widgets import Input, TextArea
+from enodectl_core.terminal import TerminalDriver
+class FixtureApp(App):
+    BINDINGS = [Binding('down', 'edit_area', priority=True), Binding('ctrl+q', 'finish', priority=True)]
+    def __init__(self): super().__init__(driver_class=TerminalDriver)
+    def compose(self):
+        yield Input(id='single')
+        yield TextArea(id='multiple')
+    def on_mount(self):
+        self.screen.set_focus(self.query_one(Input))
+        Path(sys.argv[1], 'ready').touch()
+    def action_edit_area(self):
+        self.screen.set_focus(self.query_one(TextArea))
+        Path(sys.argv[1], 'focused').touch()
+    def action_finish(self): self.exit([self.query_one(Input).value, self.query_one(TextArea).text])
+result = FixtureApp().run()
+Path(sys.argv[1], 'result.json').write_text(json.dumps(result))
+"""
+        with self.pty_app(child) as (directory, process, send, drain_until):
+            def fragmented_paste(text, followup):
+                send(b'\x1b[200~' + text.encode() + b'\x1b[20')
+                drain_until(lambda: False, 0.4)
+                send(b'1~' + followup)
+
+            fragmented_paste('fixture-家\nignored', b'\x1b[B')
+            self.assertTrue(drain_until(lambda: (directory / 'focused').exists(), 10), 'Down did not reach app')
+            multiline = ('  {"value": "fixture-家"},\n' * 250).rstrip('\n')
+            fragmented_paste(multiline, b'')
+            drain_until(lambda: False, 0.5)
+            send(b'\x11')
+            self.assertTrue(drain_until(lambda: process.poll() is not None, 10), 'Ctrl+Q did not exit')
+            self.assertEqual(process.returncode, 0)
+            self.assertEqual(json.loads((directory / 'result.json').read_text()), ['fixture-家', multiline])
+
+    def test_real_pty_discard_from_back_button_keeps_dashboard_responsive(self):
+        # Reproduce the actual interaction: paste, go to Back through the
+        # form's button handler, accept discard, then navigate the dashboard.
+        child = r"""
+import sys
+from pathlib import Path
+from textual.app import App
+from textual.binding import Binding
+from textual.widgets import Button
+from enodectl_core.terminal import TerminalDriver
+from enodectl_core.textual_ui import Confirm, Field, FormScreen, NAVIGATION_BINDINGS, navigation_enabled, navigate
+folder = Path(sys.argv[1])
+class FixtureForm(FormScreen):
+    def fill(self, values):
+        super().fill(values)
+        self.call_after_refresh(lambda: (folder / 'form-ready').touch())
+class FixtureApp(App):
+    BINDINGS = [Binding('ctrl+q', 'quit', priority=True), *NAVIGATION_BINDINGS]
+    def __init__(self): super().__init__(driver_class=TerminalDriver)
+    def check_action(self, action, parameters):
+        if action == 'navigate': return navigation_enabled(self.screen, parameters[0])
+        return super().check_action(action, parameters)
+    def compose(self):
+        yield Button('Open fixture', id='open')
+        yield Button('Other action', id='other')
+    def on_mount(self):
+        self.screen.set_focus(self.query_one('#open', Button))
+        (folder / 'ready').touch()
+    def on_button_pressed(self, event):
+        if event.button.id == 'open':
+            self.push_screen(FixtureForm('WireGuard fixture', [Field('peer_key', 'Public key')],
+                                         lambda: {'peer_key': ''}, lambda values: None))
+    def push_screen(self, screen, *args, **kwargs):
+        result = super().push_screen(screen, *args, **kwargs)
+        if isinstance(screen, Confirm):
+            screen.call_after_refresh(lambda: (folder / 'confirm-ready').touch())
+        return result
+    def action_navigate(self, key):
+        navigate(self.screen, key)
+        if self.focused is not None and self.focused.id == 'other':
+            (folder / 'dashboard-navigated').touch()
+    def action_quit(self): self.exit(self.focused is not None and self.focused.id == 'other')
+assert FixtureApp().run() is True
+"""
+        with self.pty_app(child) as (directory, process, send, drain_until):
+            send(b'\r')
+            self.assertTrue(drain_until(lambda: (directory / 'form-ready').exists(), 10))
+            send(b'\x1b[200~AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\x1b[201~')
+            # Enter moves from the field to Apply; Right selects Back.
+            send(b'\r\x1b[C\r')
+            self.assertTrue(drain_until(lambda: (directory / 'confirm-ready').exists(), 10), 'discard dialog did not open')
+            send(b'\x1b[C\r')
+            drain_until(lambda: False, 0.5)
+            send(b'\x1b[C')
+            self.assertTrue(drain_until(lambda: (directory / 'dashboard-navigated').exists(), 10),
+                            'application stopped dispatching keys after discard')
+            send(b'\x11')
+            self.assertTrue(drain_until(lambda: process.poll() is not None, 10), 'Ctrl+Q did not exit')
+            self.assertEqual(process.returncode, 0)
+
+    @contextmanager
+    def pty_app(self, child):
+        with tempfile.TemporaryDirectory() as directory:
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+            env = {**os.environ, 'TERM': 'xterm-256color', 'PYTHONPATH': os.pathsep.join(sys.path)}
+            process = subprocess.Popen([sys.executable, '-c', child, directory], stdin=slave, stdout=slave,
+                                       stderr=slave, env=env, start_new_session=True)
+            os.close(slave)
+            os.set_blocking(master, False)
+            output = bytearray()
+
+            def drain_until(condition, timeout):
+                deadline = time.monotonic() + timeout
+                while time.monotonic() < deadline and not condition():
+                    if select.select([master], [], [], 0.05)[0]:
+                        try: output.extend(os.read(master, 16384))
+                        except OSError: break
+                return condition()
+
+            def send(data):
+                deadline = time.monotonic() + 10
+                while data and time.monotonic() < deadline:
+                    readable, writable, _ = select.select([master], [master], [], 0.05)
+                    if readable: output.extend(os.read(master, 16384))
+                    if writable: data = data[os.write(master, data[:1024]):]
+                self.assertFalse(data, 'PTY stopped accepting input')
+
+            try:
+                self.assertTrue(drain_until(lambda: b'\x1b[?2004h' in output and Path(directory, 'ready').exists(), 10),
+                                'PTY app did not start')
+                yield Path(directory), process, send, drain_until
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try: process.wait(timeout=5)
+                    except subprocess.TimeoutExpired: process.kill(); process.wait()
+                os.close(master)
+
 
     def test_actual_reader_thread_survives_invalid_bytes(self):
         read_fd, write_fd = os.pipe()

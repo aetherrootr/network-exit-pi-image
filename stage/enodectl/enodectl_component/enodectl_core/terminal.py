@@ -4,7 +4,7 @@ import os
 import selectors
 from time import monotonic
 
-from textual import events
+from textual import constants, events
 from textual._parser import ParseError
 from textual._xterm_parser import XTermParser
 from textual.drivers.linux_driver import LinuxDriver
@@ -23,42 +23,34 @@ class TerminalInput:
     PASTE_END = '\x1b[201~'
 
     def __init__(self, debug=False):
-        self.debug = debug
         self.decoder = getincrementaldecoder('utf-8')(errors='surrogateescape')
         self.parser = XTermParser(debug)
         self.paste_started = None
         self.paste_last = None
-        self.last_input = None
+        self.paste_parts = []
         self.marker_tail = ''
+        self.marker_at = None
+
+    def discard_paste(self):
+        self.paste_started = self.paste_last = None
+        self.paste_parts.clear()
+        self.marker_tail = ''
+        self.marker_at = None
+        self.decoder.reset()
 
     def expire_paste(self, now):
-        idle = self.last_input is not None and now - self.last_input >= self.PASTE_IDLE_SECONDS
-        expired = (self.paste_started is not None and
-                   (now - self.paste_last >= self.PASTE_IDLE_SECONDS or now - self.paste_started >= self.PASTE_MAX_SECONDS))
-        if not (idle or expired): return
-        # Textual waits indefinitely for a missing bracketed-paste terminator,
-        # swallowing later keyboard/mouse input. A partial terminator can also
-        # time out inside Textual while the raw marker detector thinks it
-        # completed. Reset on idle even when our paste tracker is clear.
-        previous = self.parser
-        self.close()
-        self.parser = XTermParser(self.debug)
-        for attribute in ('terminal_size', 'terminal_pixel_size', 'mouse_pixels', 'last_x', 'last_y'):
-            if hasattr(previous, attribute): setattr(self.parser, attribute, getattr(previous, attribute))
-        self.decoder.reset()
-        self.paste_started = self.paste_last = None
-        self.last_input = None
-        self.marker_tail = ''
+        if self.paste_started is not None and (
+            now - self.paste_last >= self.PASTE_IDLE_SECONDS or
+            now - self.paste_started >= self.PASTE_MAX_SECONDS
+        ):
+            # An incomplete paste is never replayed as keyboard commands.
+            self.discard_paste()
 
-    def observe_paste(self, text, now):
-        # Keep only the short suffix needed for a marker split across reads.
-        # Do not log input or retain the full pasted configuration here.
-        combined = self.marker_tail + text
-        start, end = combined.rfind(self.PASTE_START), combined.rfind(self.PASTE_END)
-        if start > end and self.paste_started is None: self.paste_started = now
-        elif end > start: self.paste_started = self.paste_last = None
-        if self.paste_started is not None: self.paste_last = now
-        self.marker_tail = combined[-(len(self.PASTE_START) - 1):]
+    @staticmethod
+    def marker_suffix(text, marker):
+        for length in range(min(len(text), len(marker) - 1), 0, -1):
+            if text.endswith(marker[:length]): return length
+        return 0
 
     @staticmethod
     def filtered(messages):
@@ -66,32 +58,65 @@ class TerminalInput:
             if isinstance(message, events.Key):
                 if clean_input(message.key) != message.key: continue
                 if message.character and clean_input(message.character) != message.character: continue
-            if isinstance(message, events.Paste):
-                message = events.Paste(clean_input(message.text))
             yield message
 
     def feed(self, data):
         now = monotonic()
         self.expire_paste(now)
-        if data: self.last_input = now
+        if data and self.paste_started is not None: self.paste_last = now
         text = self.decoder.decode(data)
-        # Empty text can be an incomplete valid UTF-8 character, not EOF.
-        if text:
-            self.observe_paste(text, now)
-            yield from self.filtered(self.parser.feed(text))
+        if not text: return  # An incomplete UTF-8 character is not EOF.
+        text = self.marker_tail + text
+        self.marker_tail = ''
+        self.marker_at = None
+        # Frame bracketed paste *before* Textual's escape parser. Its short
+        # escape timeout otherwise breaks a fragmented end marker and leaves
+        # the parser swallowing keyboard/mouse events. The payload must never
+        # be parsed as individual terminal commands (or logged by Textual).
+        while text:
+            in_paste = self.paste_started is not None
+            marker = self.PASTE_END if in_paste else self.PASTE_START
+            index = text.find(marker)
+            if index < 0:
+                tail_length = self.marker_suffix(text, marker)
+                if tail_length:
+                    self.marker_tail = text[-tail_length:]
+                    self.marker_at = now
+                    text = text[:-tail_length]
+                if in_paste:
+                    self.paste_parts.append(text)
+                elif text:
+                    yield from self.filtered(self.parser.feed(text))
+                return
+            before, text = text[:index], text[index + len(marker):]
+            if in_paste:
+                self.paste_parts.append(before)
+                payload = clean_input(''.join(self.paste_parts)).replace('\x00', '')
+                self.paste_parts.clear()
+                self.paste_started = self.paste_last = None
+                if payload: yield events.Paste(payload)
+            else:
+                if before: yield from self.filtered(self.parser.feed(before))
+                self.paste_started = self.paste_last = now
 
     def tick(self):
-        self.expire_paste(monotonic())
-        messages = list(self.parser.tick())
-        if messages and self.paste_started is not None:
-            # A partial escape timing out during a paste produces artificial
-            # key events. Do not forward those or join a late suffix to the
-            # already-timed-out marker; retain the idle/max recovery deadline.
-            self.marker_tail = ''
-            messages = [message for message in messages if not isinstance(message, events.Key)]
-        yield from self.filtered(messages)
+        now = monotonic()
+        self.expire_paste(now)
+        if self.paste_started is not None: return
+        if self.marker_tail:
+            # A lone Escape is a normal navigation key, not necessarily a
+            # paste prefix. Keep longer partial start markers across SSH reads.
+            timeout = constants.ESCAPE_DELAY if self.marker_tail == '\x1b' else self.PASTE_IDLE_SECONDS
+            if now - self.marker_at >= timeout:
+                tail, self.marker_tail = self.marker_tail, ''
+                self.marker_at = None
+                # Do not feed an expired prefix back to Textual: a late
+                # suffix could put it into its own untracked paste mode.
+                if tail == '\x1b': yield events.Key('escape', tail)
+        yield from self.filtered(self.parser.tick())
 
     def close(self):
+        self.discard_paste()
         try:
             for _ in self.parser.feed(''): pass
         except (EOFError, ParseError): pass
